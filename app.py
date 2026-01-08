@@ -21,10 +21,21 @@ with st.sidebar:
     uploaded_map = st.file_uploader("Upload Peta (.geojson/.shp)", type=["geojson", "json", "shp"])
 
     st.header("2. Pengaturan Tampilan")
+    
+    # DAFTAR WARNA ALA QGIS
+    # Catatan: Folium agak pemilih, tapi Matplotlib (Export) support semua ini.
+    # Jika di Folium warna tidak muncul (hitam), berarti Folium tidak support, 
+    # TAPI saat di-export hasilnya akan tetap benar sesuai pilihan ini.
+    daftar_warna = [
+        "Reds", "Blues", "Greens", "Greys", "Oranges", "Purples", # Single Hue (QGIS Standard)
+        "YlOrRd", "YlGnBu", "RdYlGn", "Spectral", "coolwarm",     # Diverging/Sequential
+        "viridis", "magma", "plasma", "inferno", "turbo"          # Modern (Matplotlib/QGIS)
+    ]
+    
     color_palette = st.selectbox(
-        "Pilih Tema Warna:",
-        ["YlOrRd", "PuBu", "YlGn", "OrRd", "RdPu", "Spectral", "coolwarm"],
-        index=0
+        "Pilih Tema Warna (QGIS Style):",
+        daftar_warna,
+        index=0 # Default Reds
     )
 
 # --- PROSES UTAMA ---
@@ -67,46 +78,51 @@ if uploaded_excel and uploaded_map:
         final_map_data['Total_Penjualan'] = final_map_data['Total_Penjualan'].fillna(0)
 
         # -----------------------------------------------------------
-        # LOGIKA BINS (DIPERBARUI: LANGSUNG DI INPUT BOX)
+        # LOGIKA BINS (QUARTILE / 4 BAGIAN)
         # -----------------------------------------------------------
         min_val = final_map_data['Total_Penjualan'].min()
         max_val = final_map_data['Total_Penjualan'].max()
         
-        # 1. Hitung Default Otomatis (Quantile)
-        # Kita hitung dulu nilai idealnya supaya user tidak mulai dari nol
+        # 1. Hitung Default 4 Bagian (Quartile: 0%, 25%, 50%, 75%, 100%)
         try:
-            default_quantiles = list(final_map_data['Total_Penjualan'].quantile([0, 0.2, 0.4, 0.6, 0.8, 1.0]))
-            default_quantiles = sorted(list(set(default_quantiles))) # Hapus duplikat
+            # Menggunakan quantile 0, 0.25, 0.5, 0.75, 1.0
+            default_quantiles = list(final_map_data['Total_Penjualan'].quantile([0, 0.25, 0.5, 0.75, 1.0]))
             
-            # Format menjadi string "0, 100, 200" untuk ditampilkan di input box
-            # Kita bulatkan jadi integer (int) agar rapi di input box
-            default_str = ", ".join([str(int(x)) for x in default_quantiles])
+            # PENTING: Ubah ke Integer (int) agar tidak ada koma desimal yang "ngawur"
+            # Hapus duplikat (set) lalu urutkan kembali (sorted)
+            clean_quantiles = sorted(list(set([int(x) for x in default_quantiles])))
+            
+            # Gabungkan jadi string dengan koma
+            default_str = ", ".join([str(x) for x in clean_quantiles])
         except:
             default_str = f"{int(min_val)}, {int(max_val)}"
 
-        # 2. Tampilkan Input Box (Langsung terisi nilai otomatis)
+        # 2. Tampilkan Input Box
         st.sidebar.markdown("### Batas Nilai (Legend)")
-        st.sidebar.caption(f"Rentang Data: {min_val:,.0f} - {max_val:,.0f}")
+        st.sidebar.caption(f"Rentang Data: {int(min_val):,} - {int(max_val):,}")
         
         user_bins = st.sidebar.text_area(
-            "Edit batas nilai di bawah ini (pisahkan koma):", 
+            "Edit batas nilai (pisahkan koma):", 
             value=default_str,
-            height=100
+            height=80,
+            help="Default sudah dibagi 4 bagian rata (Quartile)."
         )
         
         # 3. Proses Nilai dari Input Box
         bins_list = None
         try:
+            # Konversi input text menjadi list angka
             custom_bins = [float(x.strip()) for x in user_bins.split(',')]
             custom_bins = sorted(list(set(custom_bins)))
             
-            # Validasi keamanan range
+            # Pastikan mencakup min & max data agar tidak ada wilayah abu-abu
             if custom_bins[0] > min_val: custom_bins.insert(0, min_val)
             if custom_bins[-1] < max_val: custom_bins.append(max_val)
             
+            # Validasi minimal 3 zona warna (4 angka batas)
             if len(custom_bins) < 4:
                 st.sidebar.warning("⚠️ Masukkan minimal 4 angka batas.")
-                bins_list = None # Fallback ke default folium
+                bins_list = None 
             else:
                 bins_list = custom_bins
         except:
@@ -119,12 +135,17 @@ if uploaded_excel and uploaded_map:
         centroid = final_map_data.geometry.centroid
         m = folium.Map(location=[centroid.y.mean(), centroid.x.mean()], zoom_start=8, tiles="CartoDB positron")
 
+        # Cek apakah tema warna dipilih disupport Folium secara native
+        # Folium mendukung: 'BuGn', 'BuPu', 'GnBu', 'OrRd', 'PuBu', 'PuBuGn', 'PuRd', 'RdPu', 'YlGn', 'YlGnBu', 'YlOrBr', 'YlOrRd', 'Blues', 'Greens', 'Greys', 'Oranges', 'Purples', 'Reds', 'Spectral'
+        # Tema modern (magma, viridis) mungkin tidak render interaktif, tapi export OK.
+        folium_fallback = color_palette if color_palette in ["Reds", "Blues", "Greens", "Greys", "Oranges", "Purples", "YlOrRd", "YlGnBu", "RdYlGn", "Spectral"] else "YlOrRd"
+
         folium.Choropleth(
             geo_data=final_map_data,
             data=final_map_data,
             columns=[region_col, "Total_Penjualan"],
             key_on=f"feature.properties.{region_col}",
-            fill_color=color_palette,
+            fill_color=folium_fallback, # Menggunakan warna aman untuk web interaktif
             fill_opacity=0.7,
             line_opacity=0.2,
             legend_name="Total Penjualan (Z)",
@@ -145,7 +166,9 @@ if uploaded_excel and uploaded_map:
         col1, col2 = st.columns([3, 1])
         with col1:
             st.subheader(f"Peta Interaktif: {pilihan_provinsi}")
-            # Tangkap interaksi user
+            # Tampilkan peringatan jika warna web beda dengan export
+            if folium_fallback != color_palette:
+                st.caption(f"ℹ️ Catatan: Peta interaktif menggunakan '{folium_fallback}'. Tema '{color_palette}' akan diterapkan penuh saat Export Gambar.")
             map_output = st_folium(m, use_container_width=True)
 
         with col2:
@@ -154,7 +177,7 @@ if uploaded_excel and uploaded_map:
             st.dataframe(final_map_data.sort_values(by='Total_Penjualan', ascending=False)[[region_col, 'Total_Penjualan']].head(10), hide_index=True)
 
             # -----------------------------------------------------------
-            # FITUR EXPORT: "DRAW BY CANVAS" + RAPI LEGEND
+            # FITUR EXPORT: "DRAW BY CANVAS" + LEGEND RAPI QGIS STYLE
             # -----------------------------------------------------------
             st.markdown("---")
             st.subheader("⬇️ Export View")
@@ -173,12 +196,15 @@ if uploaded_excel and uploaded_map:
                         west, south, east, north = minx, miny, maxx, maxy
 
                     # 2. Setup Matplotlib
-                    fig, ax = plt.subplots(figsize=(12, 7)) # Sedikit lebih lebar
+                    fig, ax = plt.subplots(figsize=(12, 7))
                     
                     # Gunakan BoundaryNorm agar warna tegas (discrete) sesuai bins
-                    cmap_base = plt.get_cmap(color_palette)
+                    try:
+                        cmap_base = plt.get_cmap(color_palette) # Mengambil warna asli pilihan user (support Magma/Viridis dll)
+                    except:
+                        cmap_base = plt.get_cmap("Reds") # Fallback
+
                     if bins_list:
-                        # Membuat colormap discrete (kotak-kotak)
                         norm = mcolors.BoundaryNorm(bins_list, cmap_base.N)
                     else:
                         norm = mcolors.Normalize(vmin=min_val, vmax=max_val)
@@ -198,8 +224,7 @@ if uploaded_excel and uploaded_map:
                     ax.set_ylim(south, north)
                     ax.set_axis_off()
                     
-                    # 5. CUSTOM LEGEND (YANG LEBIH RAPI)
-                    # Posisi: Upper Right, lebar 35% dari peta, tinggi 2.5%
+                    # 5. CUSTOM LEGEND (QGIS STYLE)
                     cax = inset_axes(ax,
                                     width="35%", 
                                     height="2.5%", 
@@ -216,11 +241,18 @@ if uploaded_excel and uploaded_map:
                         spacing='uniform' 
                     )
                     
-                    # Styling Text Legenda
-                    # Format angka biar gak kepanjangan (opsional, tapi pakai raw dulu)
-                    cb.ax.tick_params(labelsize=6, color='black', labelcolor='black') 
+                    # Styling Text Legenda agar RAPI (Format Integer)
+                    cb.ax.tick_params(labelsize=6, color='black', labelcolor='black')
                     
-                    # Judul Legenda (Padding diperbesar agar tidak numpuk)
+                    # Format angka di colorbar agar tidak ada .0000001
+                    # Kita paksa labelnya jadi integer dengan koma pemisah ribuan
+                    if bins_list:
+                        # Set ticks manual sesuai bins
+                        cb.set_ticks(bins_list)
+                        # Set label manual yang sudah diformat rapi
+                        cb.set_ticklabels([f"{int(x):,}" for x in bins_list])
+
+                    # Judul Legenda
                     cb.set_label('Total Penjualan (Z)', size=8, weight='bold', labelpad=7) 
                     
                     # Background Transparan
