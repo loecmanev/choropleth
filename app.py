@@ -20,17 +20,14 @@ st.set_page_config(
 # --- 2. INJECT CSS KHUSUS (USGS STYLE + DARK SIDEBAR) ---
 st.markdown("""
     <style>
-        /* 1. Menghilangkan Padding Bawaan Streamlit supaya Header nempel atas */
         .block-container {
             padding-top: 0rem;
             padding-bottom: 0rem;
             padding-left: 1rem;
             padding-right: 1rem;
         }
-        
-        /* 2. Custom Header ala USGS (Biru Tua) */
         .usgs-header {
-            background-color: #00264C; /* Warna Biru Khas USGS/Gov */
+            background-color: #00264C;
             color: white;
             padding: 15px 20px;
             display: flex;
@@ -52,19 +49,13 @@ st.markdown("""
             border-left: 1px solid #d1d5db;
             padding-left: 15px;
         }
-
-        /* 3. Memaksa Sidebar Berwarna Gelap (Dark Mode Override) */
         [data-testid="stSidebar"] {
-            background-color: #1e1e1e; /* Abu-abu sangat gelap */
+            background-color: #1e1e1e;
             border-right: 1px solid #333;
         }
-        
-        /* Mengubah warna teks di sidebar agar terbaca di background gelap */
         [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] label, [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
             color: #e0e0e0 !important;
         }
-
-        /* 4. Styling Expander agar mirip menu akordeon USGS */
         .streamlit-expanderHeader {
             background-color: #2d2d2d !important;
             color: white !important;
@@ -87,8 +78,6 @@ st.markdown("""
 # --- 3. SIDEBAR (SEARCH CRITERIA STYLE) ---
 with st.sidebar:
     st.markdown("### 1. Enter Search Criteria")
-    
-    # Menggunakan Expander agar mirip menu dropdown USGS
     with st.expander("📁 Data Import", expanded=True):
         uploaded_excel = st.file_uploader("Upload Excel Data (.xlsx)", type=["xlsx"])
         uploaded_map = st.file_uploader("Upload Geometry (.geojson/.shp)", type=["geojson", "json", "shp"])
@@ -103,7 +92,6 @@ with st.sidebar:
     st.info("💡 Pastikan format koordinat EPSG:4326 (Latitude/Longitude).")
 
 # --- 4. PROSES UTAMA ---
-# Container utama
 main_container = st.container()
 
 if uploaded_excel and uploaded_map:
@@ -116,10 +104,9 @@ if uploaded_excel and uploaded_map:
             if gdf_raw.crs != "EPSG:4326":
                 gdf_raw = gdf_raw.to_crs("EPSG:4326")
 
-            # FILTER PROVINSI (Jika ada)
+            # FILTER PROVINSI
             if 'NAME_1' in gdf_raw.columns:
                 list_provinsi = sorted(gdf_raw['NAME_1'].unique())
-                # Pilihan provinsi ditaruh di atas peta agar lebih aksesibel
                 pilihan_provinsi = st.selectbox("📍 Select Region of Interest:", list_provinsi)
                 gdf_kecamatan = gdf_raw[gdf_raw['NAME_1'] == pilihan_provinsi].copy()
             else:
@@ -144,19 +131,28 @@ if uploaded_excel and uploaded_map:
             final_map_data = gdf_kecamatan.merge(agg_data, on=region_col, how="left")
             final_map_data['Total_Penjualan'] = final_map_data['Total_Penjualan'].fillna(0)
 
-            # --- LOGIKA BINS ---
-            min_val = final_map_data['Total_Penjualan'].min()
+            # ------------------------------------------------------------------
+            # LOGIKA BINS BARU: 0%, 25%, 50%, 75%, 100% DARI MAX
+            # ------------------------------------------------------------------
             max_val = final_map_data['Total_Penjualan'].max()
             
-            try:
-                default_quantiles = list(final_map_data['Total_Penjualan'].quantile([0, 0.25, 0.5, 0.75, 1.0]))
-                default_quantiles = sorted(list(set(default_quantiles)))
-                default_str = ", ".join([str(int(x)) for x in default_quantiles])
-            except:
-                default_str = f"{int(min_val)}, {int(max_val)}"
+            # Hitung persentase linear dari nilai tertinggi
+            linear_breaks = [
+                0,                  # 0%
+                max_val * 0.25,     # 25%
+                max_val * 0.50,     # 50%
+                max_val * 0.75,     # 75%
+                max_val             # 100%
+            ]
+            
+            # Pastikan urut dan unik (menghindari error jika max=0)
+            linear_breaks = sorted(list(set(linear_breaks)))
+            
+            # Ubah ke string untuk ditampilkan di text area
+            default_str = ", ".join([str(int(x)) for x in linear_breaks])
+            # ------------------------------------------------------------------
 
             # --- LAYOUT DASHBOARD ---
-            # Kolom Kiri (Peta Besar) dan Kolom Kanan (Statistik/Result Panel)
             col_map, col_stats = st.columns([3, 1])
 
             with col_map:
@@ -166,16 +162,19 @@ if uploaded_excel and uploaded_map:
                 centroid = final_map_data.geometry.centroid
                 m = folium.Map(location=[centroid.y.mean(), centroid.x.mean()], zoom_start=9, tiles="CartoDB positron")
 
-                # Input Legend di Sidebar, tapi diproses di sini
-                with st.sidebar.expander("🎚️ Legend Configuration"):
+                # Input Legend di Sidebar (Otomatis terisi default_str yang baru)
+                with st.sidebar.expander("🎚️ Legend Configuration", expanded=True):
                      user_bins = st.text_area("Value Breaks (Comma separated):", value=default_str)
                 
                 bins_list = None
                 try:
                     custom_bins = [float(x.strip()) for x in user_bins.split(',')]
                     custom_bins = sorted(list(set(custom_bins)))
-                    if custom_bins[0] > min_val: custom_bins.insert(0, min_val)
+                    
+                    # Validasi safety agar tidak error di Folium
+                    if custom_bins[0] > 0: custom_bins.insert(0, 0) # Paksa mulai dari 0 jika user hapus
                     if custom_bins[-1] < max_val: custom_bins.append(max_val)
+                    
                     if len(custom_bins) >= 2: bins_list = custom_bins
                 except:
                     pass 
@@ -203,8 +202,6 @@ if uploaded_excel and uploaded_map:
 
             with col_stats:
                 st.markdown("### Results Summary")
-                
-                # Kotak Statistik Sederhana
                 st.metric("Total Observed Value", f"{final_map_data['Total_Penjualan'].sum():,.0f}")
                 
                 st.markdown("---")
@@ -218,15 +215,18 @@ if uploaded_excel and uploaded_map:
                 
                 if st.button("Generate Download Link"):
                     with st.spinner("Processing..."):
-                        # Logic Export Matplotlib (Sama seperti sebelumnya)
                         fig, ax = plt.subplots(figsize=(12, 8))
                         cmap_base = plt.get_cmap(color_palette)
-                        norm = mcolors.BoundaryNorm(bins_list, cmap_base.N) if bins_list else mcolors.Normalize(vmin=min_val, vmax=max_val)
+                        
+                        # Gunakan bins dari sidebar untuk export juga
+                        if bins_list:
+                             norm = mcolors.BoundaryNorm(bins_list, cmap_base.N)
+                        else:
+                             norm = mcolors.Normalize(vmin=0, vmax=max_val)
 
                         final_map_data.plot(column='Total_Penjualan', cmap=cmap_base, norm=norm, ax=ax, edgecolor='black', linewidth=0.4)
                         ax.set_axis_off()
                         
-                        # Legend
                         cax = inset_axes(ax, width="40%", height="3%", loc='upper right')
                         cb = fig.colorbar(cm.ScalarMappable(norm=norm, cmap=cmap_base), cax=cax, orientation='horizontal', spacing='uniform')
                         cb.set_label('Total Value', size=9, weight='bold')
@@ -245,7 +245,6 @@ if uploaded_excel and uploaded_map:
         except Exception as e:
             st.error(f"Error: {e}")
 else:
-    # Tampilan Awal (Placeholder Style)
     st.markdown("""
         <div style="text-align: center; padding: 50px; color: #666;">
             <h2>No Data Loaded</h2>
