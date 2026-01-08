@@ -5,6 +5,7 @@ import folium
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import matplotlib.cm as cm
+import matplotlib.ticker as ticker # <--- PENTING UNTUK FORMAT ANGKA
 import io
 from streamlit_folium import st_folium
 from folium.plugins import Draw
@@ -143,7 +144,6 @@ if uploaded_excel and uploaded_map:
                 # --- AUTO-RENDER MAP (LANGSUNG) ---
                 st.caption("Peta siap diunduh (Sesuai tampilan di atas)")
                 
-                # Menyiapkan Gambar Peta secara otomatis
                 minx, miny, maxx, maxy = final_map_data.total_bounds
                 west, south, east, north = minx, miny, maxx, maxy
                 if map_output['all_drawings']:
@@ -166,15 +166,19 @@ if uploaded_excel and uploaded_map:
                 # Legend Bawah Jauh
                 cax = inset_axes(ax, width="100%", height="100%", loc='upper center', bbox_to_anchor=(0.2, -0.25, 0.6, 0.05), bbox_transform=ax.transAxes, borderpad=0)
                 cb = fig.colorbar(cm.ScalarMappable(norm=norm, cmap=cmap_base), cax=cax, orientation='horizontal', spacing='uniform')
+                
+                # FORMATTER: Ubah format angka menjadi Integer dengan Koma (contoh: 152,984)
+                cb.ax.xaxis.set_major_formatter(ticker.StrMethodFormatter('{x:,.0f}')) # <--- INI PERBAIKANNYA
+                
                 cb.set_label('Total Penjualan (Stik)', size=10, weight='bold', labelpad=10)
-                cb.ax.xaxis.set_ticks_position('bottom'); cb.ax.tick_params(labelsize=8)
+                cb.ax.xaxis.set_ticks_position('bottom')
+                cb.ax.tick_params(labelsize=8) # Ukuran font angka
 
                 img_buffer = io.BytesIO()
                 plt.savefig(img_buffer, format='png', transparent=True, bbox_inches='tight', dpi=300, pad_inches=0.2)
                 img_buffer.seek(0)
-                plt.close(fig) # Penting untuk memori
+                plt.close(fig)
                 
-                # Tombol Download Langsung
                 st.download_button(
                     label="⬇️ Download Map (PNG)", 
                     data=img_buffer, 
@@ -193,7 +197,6 @@ if uploaded_excel and uploaded_map:
                 df_display = df_display.sort_values(by='Total_Penjualan', ascending=False).reset_index(drop=True)
                 df_display.columns = ['Kecamatan', 'Total Penjualan (Stik)']
                 
-                # Tabel Scrollable
                 st.dataframe(
                     df_display, 
                     use_container_width=True, 
@@ -204,7 +207,6 @@ if uploaded_excel and uploaded_map:
                 st.markdown("---")
                 st.markdown("### 📸 Export Table (Top 10)")
                 
-                # --- AUTO-RENDER TABLE (LANGSUNG TOP 10) ---
                 df_export = df_display.head(10)
                 rows = len(df_export)
                 h = min(max(rows * 0.4 + 1.2, 3), 10) 
@@ -233,7 +235,6 @@ if uploaded_excel and uploaded_map:
                 buf_tbl.seek(0)
                 plt.close(fig_tbl)
                 
-                # Tombol Download Langsung
                 st.download_button(
                     label="⬇️ Download Top 10 Table (PNG)",
                     data=buf_tbl,
