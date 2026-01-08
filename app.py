@@ -2,12 +2,15 @@ import streamlit as st
 import pandas as pd
 import geopandas as gpd
 import folium
+import matplotlib.pyplot as plt
+import io
 from streamlit_folium import st_folium
 from folium.plugins import Fullscreen
 
+# Konfigurasi Halaman
 st.set_page_config(page_title="Peta Penjualan Rokok", layout="wide")
 
-st.title("🗺️ Peta Interaktif Penjualan Rokok - Kustomisasi Legenda")
+st.title("🗺️ Peta Interaktif & Export Vector")
 
 # --- SIDEBAR ---
 with st.sidebar:
@@ -19,9 +22,8 @@ with st.sidebar:
     # Pilihan Palet Warna
     color_palette = st.selectbox(
         "Pilih Tema Warna:",
-        ["YlOrRd", "PuBu", "YlGn", "OrRd", "RdPu"],
-        index=0,
-        help="YlOrRd = Kuning ke Merah, PuBu = Ungu ke Biru, YlGn = Kuning ke Hijau"
+        ["YlOrRd", "PuBu", "YlGn", "OrRd", "RdPu", "Spectral", "coolwarm"],
+        index=0
     )
     
     # Pilihan Mode Klasifikasi
@@ -71,44 +73,53 @@ if uploaded_excel and uploaded_map:
         final_map_data['Total_Penjualan'] = final_map_data['Total_Penjualan'].fillna(0)
 
         # -----------------------------------------------------------
-        # LOGIKA KUSTOMISASI BINS (BATAS NILAI)
+        # LOGIKA BINS (PERBAIKAN UTAMA)
         # -----------------------------------------------------------
         min_val = final_map_data['Total_Penjualan'].min()
         max_val = final_map_data['Total_Penjualan'].max()
-        
-        # Default bins = None (biarkan Folium menghitung otomatis)
         bins_list = None 
-        
-        if classification_mode == "Manual (Custom)":
+
+        if classification_mode == "Otomatis (Quantile)":
+            # Hitung 6 titik pembagi untuk mendapatkan 5 kelas warna (0%, 20%, 40%, 60%, 80%, 100%)
+            # Ini menjamin pembagian warna merata (Quantile)
+            try:
+                quantiles = list(final_map_data['Total_Penjualan'].quantile([0, 0.2, 0.4, 0.6, 0.8, 1.0]))
+                # Hapus duplikat jika datanya banyak yang 0
+                bins_list = sorted(list(set(quantiles)))
+                # Jika hasil quantile kurang dari 3 kelas, fallback ke linear
+                if len(bins_list) < 4:
+                    bins_list = None 
+            except:
+                bins_list = None # Gunakan default folium jika gagal
+
+        elif classification_mode == "Manual (Custom)":
             st.sidebar.info(f"Rentang Data: {min_val:,.0f} s/d {max_val:,.0f}")
             
-            # Input user berupa text
-            user_bins = st.sidebar.text_input(
-                "Masukkan batas nilai (pisahkan koma):", 
-                value=f"{min_val},{min_val + (max_val-min_val)/2},{max_val}"
-            )
+            # Default value untuk input box
+            default_bins = f"{min_val}, {min_val + (max_val-min_val)/3:.0f}, {min_val + 2*(max_val-min_val)/3:.0f}, {max_val}"
+            
+            user_bins = st.sidebar.text_input("Masukkan batas nilai (pisahkan koma):", value=default_bins)
             
             try:
-                # Ubah text "100, 200, 300" menjadi list [100, 200, 300]
                 custom_bins = [float(x.strip()) for x in user_bins.split(',')]
+                custom_bins = sorted(list(set(custom_bins))) # Urutkan & Hapus duplikat
                 
-                # Validasi: Bins harus urut
-                custom_bins = sorted(custom_bins)
+                # Pastikan mencakup min & max
+                if custom_bins[0] > min_val: custom_bins.insert(0, min_val)
+                if custom_bins[-1] < max_val: custom_bins.append(max_val)
                 
-                # Pastikan mencakup min dan max data
-                if custom_bins[0] > min_val:
-                    custom_bins.insert(0, min_val)
-                if custom_bins[-1] < max_val:
-                    custom_bins.append(max_val)
-                
-                bins_list = custom_bins
-                st.sidebar.success(f"Batas dipakai: {bins_list}")
-                
-            except ValueError:
-                st.sidebar.error("Format salah! Masukkan hanya angka dipisah koma.")
+                # CEK ERROR MINIMAL WARNA
+                if len(custom_bins) < 4:
+                    st.sidebar.warning("⚠️ Minimal harus ada 4 angka batas untuk menghasilkan 3 warna. Menggunakan mode otomatis sementara.")
+                    bins_list = None
+                else:
+                    bins_list = custom_bins
+                    st.sidebar.success(f"Menggunakan {len(bins_list)-1} kelas warna.")
+            except:
+                st.sidebar.error("Format angka salah.")
 
         # -----------------------------------------------------------
-        # VISUALISASI
+        # VISUALISASI FOLIUM (INTERAKTIF)
         # -----------------------------------------------------------
         centroid = final_map_data.geometry.centroid
         m = folium.Map(location=[centroid.y.mean(), centroid.x.mean()], zoom_start=8, tiles="CartoDB positron")
@@ -122,33 +133,72 @@ if uploaded_excel and uploaded_map:
             fill_opacity=0.7,
             line_opacity=0.2,
             legend_name="Total Penjualan (Z)",
-            bins=bins_list, # <--- INI PARAMETER KUNCINYA
+            bins=bins_list, 
             highlight=True
         ).add_to(m)
 
-        # Tooltip
         folium.GeoJson(
             final_map_data,
             style_function=lambda x: {'fillColor': '#00000000', 'color': '#00000000'},
             tooltip=folium.GeoJsonTooltip(
                 fields=[region_col, 'Total_Penjualan'],
-                aliases=['Kecamatan:', 'Total Penjualan:'],
+                aliases=['Kecamatan:', 'Total:'],
                 localize=True
             )
         ).add_to(m)
 
         col1, col2 = st.columns([3, 1])
         with col1:
-            st.subheader(f"Peta Sebaran: {pilihan_provinsi}")
+            st.subheader(f"Peta Interaktif: {pilihan_provinsi}")
             st_folium(m, use_container_width=True)
 
         with col2:
             st.subheader("Statistik")
             st.metric("Total Penjualan", f"{final_map_data['Total_Penjualan'].sum():,.0f}")
-            st.write("Top 10 Kecamatan:")
             st.dataframe(final_map_data.sort_values(by='Total_Penjualan', ascending=False)[[region_col, 'Total_Penjualan']].head(10), hide_index=True)
 
+            # -----------------------------------------------------------
+            # FITUR BARU: EXPORT VECTOR (PNG/SVG) TRANSPARAN
+            # -----------------------------------------------------------
+            st.markdown("---")
+            st.subheader("⬇️ Download Peta")
+            st.write("Download peta statis resolusi tinggi dengan background transparan.")
+            
+            format_file = st.selectbox("Format:", ["PNG", "SVG", "PDF"])
+            
+            if st.button("Generate File Download"):
+                with st.spinner("Sedang membuat file vector..."):
+                    # Membuat Plot Matplotlib (Backend untuk Vector)
+                    fig, ax = plt.subplots(figsize=(10, 6))
+                    
+                    # Plot Peta
+                    final_map_data.plot(
+                        column='Total_Penjualan',
+                        cmap=color_palette,
+                        legend=True,
+                        legend_kwds={'label': "Total Penjualan (Z)", 'orientation': "horizontal"},
+                        ax=ax,
+                        edgecolor='black',
+                        linewidth=0.5
+                    )
+                    
+                    # Hilangkan Axis (Kotak Koordinat) agar bersih
+                    ax.set_axis_off()
+                    ax.set_title(f"Peta Penjualan - {pilihan_provinsi}", fontsize=15)
+                    
+                    # Simpan ke Buffer (Memori)
+                    img_buffer = io.BytesIO()
+                    plt.savefig(img_buffer, format=format_file.lower(), transparent=True, dpi=300, bbox_inches='tight')
+                    img_buffer.seek(0)
+                    
+                    st.download_button(
+                        label=f"Klik untuk Download {format_file}",
+                        data=img_buffer,
+                        file_name=f"peta_penjualan_{pilihan_provinsi}.{format_file.lower()}",
+                        mime=f"image/{format_file.lower()}" if format_file != "PDF" else "application/pdf"
+                    )
+
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Terjadi kesalahan: {e}")
 else:
-    st.info("Silakan upload data di sidebar.")
+    st.info("Silakan upload data Excel dan Shapefile di sidebar.")
