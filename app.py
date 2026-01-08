@@ -115,7 +115,6 @@ if uploaded_excel and uploaded_map:
                 draw = Draw(export=False, position='topleft', draw_options={'polyline':False,'polygon':False,'circle':False,'marker':False,'circlemarker':False,'rectangle':True})
                 draw.add_to(m)
 
-                # Legend Sidebar logic
                 with st.sidebar.expander("🎚️ Legend Configuration", expanded=True):
                      user_bins = st.text_area("Value Breaks:", value=default_str)
                 
@@ -133,15 +132,10 @@ if uploaded_excel and uploaded_map:
                     line_opacity=0.3, legend_name="Total Penjualan (Stik)", bins=bins_list, highlight=True
                 ).add_to(m)
                 
-                # Tooltip: Ubah Alias jadi 'Total Stik'
                 folium.GeoJson(
                     final_map_data, 
                     style_function=lambda x: {'fillColor':'#00000000','color':'#00000000'}, 
-                    tooltip=folium.GeoJsonTooltip(
-                        fields=[region_col, 'Total_Penjualan'], 
-                        aliases=['Kecamatan:', 'Total Stik:'], 
-                        localize=True
-                    )
+                    tooltip=folium.GeoJsonTooltip(fields=[region_col, 'Total_Penjualan'], aliases=['Kecamatan:', 'Total Stik:'], localize=True)
                 ).add_to(m)
 
                 map_output = st_folium(m, use_container_width=True, height=600)
@@ -169,11 +163,9 @@ if uploaded_excel and uploaded_map:
                             final_map_data.plot(column='Total_Penjualan', cmap=cmap_base, norm=norm, ax=ax, edgecolor='black', linewidth=0.5)
                             ax.set_xlim(west, east); ax.set_ylim(south, north); ax.set_axis_off()
 
-                            # Legend Bawah (Jauh, Tidak Nabrak)
+                            # Legend Bawah Jauh
                             cax = inset_axes(ax, width="100%", height="100%", loc='upper center', bbox_to_anchor=(0.2, -0.25, 0.6, 0.05), bbox_transform=ax.transAxes, borderpad=0)
                             cb = fig.colorbar(cm.ScalarMappable(norm=norm, cmap=cmap_base), cax=cax, orientation='horizontal', spacing='uniform')
-                            
-                            # Label Legend: STIK
                             cb.set_label('Total Penjualan (Stik)', size=10, weight='bold', labelpad=10)
                             cb.ax.xaxis.set_ticks_position('bottom'); cb.ax.tick_params(labelsize=8)
 
@@ -188,48 +180,47 @@ if uploaded_excel and uploaded_map:
             with col_stats:
                 st.markdown("### 📋 Data Breakdown")
                 
-                # Persiapan Data Tabel
                 df_display = final_map_data[[region_col, 'Total_Penjualan']].copy()
                 df_display = df_display.sort_values(by='Total_Penjualan', ascending=False).reset_index(drop=True)
-                
-                # Rename Header jadi STIK
                 df_display.columns = ['Kecamatan', 'Total Penjualan (Stik)']
                 
-                # 1. Tampilkan Tabel Interaktif (Tanpa Format Rp)
+                # Tampilkan Tabel (Full Scrollable)
                 st.dataframe(
                     df_display, 
                     use_container_width=True, 
                     height=400,
-                    column_config={
-                        "Total Penjualan (Stik)": st.column_config.NumberColumn(format="%d") # Angka biasa
-                    }
+                    column_config={"Total Penjualan (Stik)": st.column_config.NumberColumn(format="%d")}
                 )
                 
                 st.markdown("---")
-                st.markdown("### 📸 Export Table as Image")
+                st.markdown("### 📸 Export Table (Top 10 Only)")
                 
                 col_fmt, col_btn = st.columns([1, 1])
                 with col_fmt:
                     fmt_table = st.selectbox("Format:", ["JPG", "PNG"], key="fmt_table")
                 
-                if st.button("Generate Table Image", key="btn_gen_table"):
-                    with st.spinner("Converting Table to Image..."):
-                        rows = len(df_display)
-                        h = min(max(rows * 0.3 + 1, 3), 50)
+                if st.button("Generate Top 10 Table Image", key="btn_gen_table"):
+                    with st.spinner("Processing Table..."):
                         
-                        fig_tbl, ax_tbl = plt.subplots(figsize=(8, h))
+                        # --- MODIFIKASI: AMBIL 10 TERATAS SAJA ---
+                        df_export = df_display.head(10)
+                        
+                        rows = len(df_export)
+                        # Tinggi gambar menyesuaikan jumlah baris (agar pas untuk 10 data)
+                        h = min(max(rows * 0.4 + 1.2, 3), 10) 
+                        
+                        fig_tbl, ax_tbl = plt.subplots(figsize=(6, h)) # Lebar diperkecil sedikit agar compact
                         ax_tbl.axis('tight')
                         ax_tbl.axis('off')
                         
                         cell_text = []
-                        for row in df_display.values:
+                        for row in df_export.values:
                             kec, val = row
-                            # Format Angka biasa (Stik)
                             cell_text.append([kec, f"{val:,.0f}"])
                         
                         table_obj = ax_tbl.table(
                             cellText=cell_text,
-                            colLabels=df_display.columns,
+                            colLabels=df_export.columns,
                             loc='center',
                             cellLoc='left',
                             colColours=['#00264C', '#00264C']
@@ -247,15 +238,18 @@ if uploaded_excel and uploaded_map:
                                 cell.set_linewidth(0.5)
                                 cell.set_edgecolor("#d1d5db")
                         
+                        # Tambahkan Judul Kecil di Gambar
+                        plt.title(f"Top 10 Wilayah - {pilihan_provinsi}", y=1, pad=-14, fontsize=10, fontweight='bold', color='#333')
+                        
                         buf_tbl = io.BytesIO()
                         plt.savefig(buf_tbl, format=fmt_table.lower(), bbox_inches='tight', dpi=200, transparent=False)
                         buf_tbl.seek(0)
                         
-                        st.success("Tabel siap diunduh!")
+                        st.success("Tabel Top 10 siap diunduh!")
                         st.download_button(
-                            label=f"⬇️ Download Table Image",
+                            label=f"⬇️ Download Top 10 Table",
                             data=buf_tbl,
-                            file_name=f"Tabel_Penjualan.{fmt_table.lower()}",
+                            file_name=f"Top10_Penjualan.{fmt_table.lower()}",
                             mime=f"image/{fmt_table.lower()}",
                             key="dl_table_btn"
                         )
