@@ -174,14 +174,15 @@ if uploaded_excel and uploaded_map:
                         ax.set_ylim(south, north)
                         ax.set_axis_off() 
 
-                        # 4. LEGENDA (FIXED: 4-TUPLE UNTUK MENGHINDARI ERROR RELATIVE UNITS)
-                        # Koordinat (x, y, width, height)
+                        # 4. LEGENDA (MODIFIKASI: POJOK KANAN ATAS - LUAR PETA)
+                        # Kita taruh di sebelah KANAN (x > 1.0) agar tidak menabrak peta.
+                        # (x, y, w, h) -> x=1.02 artinya bergeser sedikit ke kanan dari batas peta
                         cax = inset_axes(
                             ax,
-                            width="100%",    
-                            height="100%",   
-                            loc='upper center',
-                            bbox_to_anchor=(0.2, -0.08, 0.6, 0.03), # Posisi fix di bawah peta
+                            width="5%",            # Lebar batang warna (karena vertikal, ini jadi lebarnya)
+                            height="60%",          # Tinggi batang warna (60% dari tinggi peta)
+                            loc='upper left',      # Titik jangkar (pojok kiri atas box ini)
+                            bbox_to_anchor=(1.02, 0, 1, 1), # Koordinat Box Referensi (Di luar kanan peta)
                             bbox_transform=ax.transAxes,
                             borderpad=0
                         )
@@ -189,12 +190,26 @@ if uploaded_excel and uploaded_map:
                         cb = fig.colorbar(
                             cm.ScalarMappable(norm=norm, cmap=cmap_base),
                             cax=cax,
-                            orientation='horizontal',
+                            orientation='vertical', # Ubah jadi Vertikal agar cantik di samping
                             spacing='uniform'
                         )
-                        cb.set_label('Total Penjualan (Rupiah)', size=10, weight='bold', labelpad=5)
+                        # Label ditaruh di samping batang
+                        cb.set_label('Total Penjualan (Rupiah)', size=10, weight='bold', labelpad=10)
                         cb.ax.tick_params(labelsize=8)
 
+                        # 5. Simpan
+                        img_buffer = io.BytesIO()
+                        # bbox_inches='tight' SANGAT PENTING: Otomatis memperlebar gambar untuk memuat legenda di kanan
+                        plt.savefig(img_buffer, format=format_file.lower(), transparent=True, bbox_inches='tight', dpi=300)
+                        img_buffer.seek(0)
+                        
+                        st.download_button(
+                            label=f"⬇️ Download {format_file}",
+                            data=img_buffer,
+                            file_name=f"Map_Export.{format_file.lower()}",
+                            mime=f"image/{format_file.lower()}",
+                            key="btn_download_map_final_v2" # Key unik update
+                        )
                         # 5. Simpan
                         img_buffer = io.BytesIO()
                         plt.savefig(img_buffer, format=format_file.lower(), transparent=True, bbox_inches='tight', dpi=300)
@@ -213,3 +228,4 @@ if uploaded_excel and uploaded_map:
             st.error(f"Error: {e}")
 else:
     st.markdown("<div style='text-align: center; padding: 50px; color: #666;'><h2>No Data Loaded</h2></div>", unsafe_allow_html=True)
+
