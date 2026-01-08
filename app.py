@@ -174,15 +174,20 @@ if uploaded_excel and uploaded_map:
                         ax.set_ylim(south, north)
                         ax.set_axis_off() 
 
-                        # 4. LEGENDA (MODIFIKASI: POJOK KANAN ATAS - LUAR PETA)
-                        # Kita taruh di sebelah KANAN (x > 1.0) agar tidak menabrak peta.
-                        # (x, y, w, h) -> x=1.02 artinya bergeser sedikit ke kanan dari batas peta
+                        # 4. LEGENDA (HORIZONTAL - TOP RIGHT OUTSIDE)
+                        # Kita letakkan DI ATAS frame peta (y > 1.0) agar aman tidak menabrak pulau.
+                        # bbox_to_anchor=(x, y, width, height)
+                        # x=0.40 : Mulai dari 40% lebar peta (agar condong ke kanan)
+                        # y=1.02 : Sedikit di atas garis batas atas peta
+                        # w=0.60 : Lebar legenda 60% dari lebar peta
+                        # h=0.03 : Tinggi legenda tipis (3%)
+                        
                         cax = inset_axes(
                             ax,
-                            width="5%",            # Lebar batang warna (karena vertikal, ini jadi lebarnya)
-                            height="60%",          # Tinggi batang warna (60% dari tinggi peta)
-                            loc='upper left',      # Titik jangkar (pojok kiri atas box ini)
-                            bbox_to_anchor=(1.02, 0, 1, 1), # Koordinat Box Referensi (Di luar kanan peta)
+                            width="100%",       
+                            height="100%",      
+                            loc='lower left',   
+                            bbox_to_anchor=(0.40, 1.02, 0.60, 0.03), # Posisi aman di atas-kanan
                             bbox_transform=ax.transAxes,
                             borderpad=0
                         )
@@ -190,16 +195,17 @@ if uploaded_excel and uploaded_map:
                         cb = fig.colorbar(
                             cm.ScalarMappable(norm=norm, cmap=cmap_base),
                             cax=cax,
-                            orientation='vertical', # Ubah jadi Vertikal agar cantik di samping
+                            orientation='horizontal', # Kembali ke Horizontal
                             spacing='uniform'
                         )
-                        # Label ditaruh di samping batang
-                        cb.set_label('Total Penjualan (Rupiah)', size=10, weight='bold', labelpad=10)
-                        cb.ax.tick_params(labelsize=8)
+                        # Label ditaruh di atas batang warna agar rapi
+                        cb.set_label('Total Penjualan (Rupiah)', size=9, weight='bold', labelpad=5)
+                        cb.ax.xaxis.set_ticks_position('bottom') # Angka di bawah batang
+                        cb.ax.tick_params(labelsize=7)
 
                         # 5. Simpan
                         img_buffer = io.BytesIO()
-                        # bbox_inches='tight' SANGAT PENTING: Otomatis memperlebar gambar untuk memuat legenda di kanan
+                        # bbox_inches='tight' akan otomatis memperluas kanvas ke atas untuk memuat legenda
                         plt.savefig(img_buffer, format=format_file.lower(), transparent=True, bbox_inches='tight', dpi=300)
                         img_buffer.seek(0)
                         
@@ -208,8 +214,9 @@ if uploaded_excel and uploaded_map:
                             data=img_buffer,
                             file_name=f"Map_Export.{format_file.lower()}",
                             mime=f"image/{format_file.lower()}",
-                            key="btn_download_map_final_v2" # Key unik update
+                            key="btn_download_map_final_horizontal_v3" # Key unik baru
                         )
+
                         # 5. Simpan
                         img_buffer = io.BytesIO()
                         plt.savefig(img_buffer, format=format_file.lower(), transparent=True, bbox_inches='tight', dpi=300)
@@ -228,4 +235,5 @@ if uploaded_excel and uploaded_map:
             st.error(f"Error: {e}")
 else:
     st.markdown("<div style='text-align: center; padding: 50px; color: #666;'><h2>No Data Loaded</h2></div>", unsafe_allow_html=True)
+
 
