@@ -18,42 +18,29 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. INJECT CSS KHUSUS (USGS STYLE + DARK SIDEBAR + ANTI REDUP) ---
+# --- 2. INJECT CSS KHUSUS (ANTI REDUP + USGS STYLE) ---
 st.markdown("""
     <style>
-        /* --- ANTI-DIMMING --- */
+        /* Anti-Dimming */
         .stApp, [data-testid="stAppViewContainer"], .element-container, iframe {
-            opacity: 1 !important;
-            filter: none !important;
-            transition: none !important;
+            opacity: 1 !important; filter: none !important; transition: none !important;
         }
+        /* Layout Fixes */
+        .block-container { padding-top: 0rem; padding-bottom: 0rem; padding-left: 1rem; padding-right: 1rem; }
         
-        /* --- STYLING USGS --- */
-        .block-container {
-            padding-top: 0rem; padding-bottom: 0rem; padding-left: 1rem; padding-right: 1rem;
-        }
+        /* USGS Header */
         .usgs-header {
             background-color: #00264C; color: white; padding: 15px 20px;
             display: flex; align-items: center; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
             margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
         }
-        .usgs-title {
-            font-size: 24px; font-weight: bold; margin-left: 15px; letter-spacing: 0.5px;
-        }
-        .usgs-subtitle {
-            font-size: 14px; color: #d1d5db; margin-left: 15px; border-left: 1px solid #d1d5db; padding-left: 15px;
-        }
+        .usgs-title { font-size: 24px; font-weight: bold; margin-left: 15px; letter-spacing: 0.5px; }
+        .usgs-subtitle { font-size: 14px; color: #d1d5db; margin-left: 15px; border-left: 1px solid #d1d5db; padding-left: 15px; }
         
-        /* --- DARK SIDEBAR --- */
-        [data-testid="stSidebar"] {
-            background-color: #1e1e1e; border-right: 1px solid #333;
-        }
-        [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] label, [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
-            color: #e0e0e0 !important;
-        }
-        .streamlit-expanderHeader {
-            background-color: #2d2d2d !important; color: white !important; font-weight: 600; border-radius: 5px;
-        }
+        /* Dark Sidebar */
+        [data-testid="stSidebar"] { background-color: #1e1e1e; border-right: 1px solid #333; }
+        [data-testid="stSidebar"] * { color: #e0e0e0 !important; }
+        .streamlit-expanderHeader { background-color: #2d2d2d !important; color: white !important; }
     </style>
     
     <div class="usgs-header">
@@ -75,13 +62,7 @@ with st.sidebar:
         uploaded_map = st.file_uploader("Upload Geometry (.geojson/.shp)", type=["geojson", "json", "shp"])
 
     with st.expander("🎨 Visualization Settings", expanded=True):
-        color_palette = st.selectbox(
-            "Color Theme:",
-            ["YlOrRd", "PuBu", "YlGn", "OrRd", "RdPu", "Spectral", "coolwarm", "turbo", "viridis"],
-            index=0
-        )
-    
-    st.info("💡 **Tips Export:** Gunakan tools 'Kotak' (Rectangle) di peta untuk memilih area spesifik yang akan di-print (Draw on Canvas).")
+        color_palette = st.selectbox("Color Theme:", ["YlOrRd", "PuBu", "YlGn", "OrRd", "RdPu", "Spectral", "coolwarm", "turbo", "viridis"], index=0)
 
 # --- 4. PROSES UTAMA ---
 main_container = st.container()
@@ -89,14 +70,12 @@ main_container = st.container()
 if uploaded_excel and uploaded_map:
     with main_container:
         try:
-            # --- DATA PROCESSING ---
+            # --- DATA PREP ---
             df = pd.read_excel(uploaded_excel)
             gdf_raw = gpd.read_file(uploaded_map)
+            if gdf_raw.crs != "EPSG:4326": gdf_raw = gdf_raw.to_crs("EPSG:4326")
 
-            if gdf_raw.crs != "EPSG:4326":
-                gdf_raw = gdf_raw.to_crs("EPSG:4326")
-
-            # FILTER PROVINSI
+            # Filter
             if 'NAME_1' in gdf_raw.columns:
                 list_provinsi = sorted(gdf_raw['NAME_1'].unique())
                 pilihan_provinsi = st.selectbox("📍 Select Region of Interest:", list_provinsi)
@@ -105,25 +84,18 @@ if uploaded_excel and uploaded_map:
                 gdf_kecamatan = gdf_raw
                 pilihan_provinsi = "All Regions"
 
-            # SPATIAL JOIN
-            gdf_points = gpd.GeoDataFrame(
-                df, 
-                geometry=gpd.points_from_xy(df.longitude, df.latitude),
-                crs="EPSG:4326"
-            )
+            # Join
+            gdf_points = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df.longitude, df.latitude), crs="EPSG:4326")
             joined = gpd.sjoin(gdf_points, gdf_kecamatan, how="inner", predicate="within")
 
-            # AGREGASI
-            region_col = 'NAME_3'
-            if region_col not in gdf_kecamatan.columns:
-                 region_col = st.selectbox("Select Region Column:", gdf_kecamatan.columns)
-
+            region_col = 'NAME_3' if 'NAME_3' in gdf_kecamatan.columns else st.selectbox("Select Region Column:", gdf_kecamatan.columns)
+            
             agg_data = joined.groupby(region_col)['Z'].sum().reset_index()
             agg_data.columns = [region_col, 'Total_Penjualan']
             final_map_data = gdf_kecamatan.merge(agg_data, on=region_col, how="left")
             final_map_data['Total_Penjualan'] = final_map_data['Total_Penjualan'].fillna(0)
 
-            # --- LOGIKA BINS (LINEAR SCALE) ---
+            # Bins (0, 25, 50, 75, 100%)
             max_val = final_map_data['Total_Penjualan'].max()
             linear_breaks = sorted(list(set([0, max_val * 0.25, max_val * 0.50, max_val * 0.75, max_val])))
             default_str = ", ".join([str(int(x)) for x in linear_breaks])
@@ -134,67 +106,34 @@ if uploaded_excel and uploaded_map:
             with col_map:
                 st.markdown(f"**Map View: {pilihan_provinsi}**")
                 
-                # --- FOLIUM SETUP (MICRO-ZOOM ENABLED) ---
+                # Peta (Micro-Zoom)
                 centroid = final_map_data.geometry.centroid
+                m = folium.Map(location=[centroid.y.mean(), centroid.x.mean()], zoom_start=9, tiles="CartoDB positron", zoom_snap=0.1, zoom_delta=0.1)
                 
-                # Parameter zoom_snap=0.1 dan zoom_delta=0.1 mengaktifkan Micro-Zoom
-                m = folium.Map(
-                    location=[centroid.y.mean(), centroid.x.mean()], 
-                    zoom_start=9, 
-                    tiles="CartoDB positron",
-                    zoom_snap=0.1,  # Mengizinkan level zoom desimal (misal 9.4)
-                    zoom_delta=0.1  # Sensitivitas scroll mouse halus
-                )
-
-                # --- DRAW TOOL (UNTUK SELECT AREA EXPORT) ---
-                draw = Draw(
-                    export=False,
-                    position='topleft',
-                    draw_options={
-                        'polyline': False,
-                        'polygon': False,
-                        'circle': False,
-                        'marker': False,
-                        'circlemarker': False,
-                        'rectangle': True, # HANYA AKTIFKAN RECTANGLE
-                    }
-                )
+                # Draw Tool
+                draw = Draw(export=False, position='topleft', draw_options={'polyline':False,'polygon':False,'circle':False,'marker':False,'circlemarker':False,'rectangle':True})
                 draw.add_to(m)
 
-                # Input Legend Sidebar
+                # Legend Sidebar Input
                 with st.sidebar.expander("🎚️ Legend Configuration", expanded=True):
-                     user_bins = st.text_area("Value Breaks (Comma separated):", value=default_str)
+                     user_bins = st.text_area("Value Breaks:", value=default_str)
                 
                 bins_list = None
                 try:
-                    custom_bins = [float(x.strip()) for x in user_bins.split(',')]
-                    custom_bins = sorted(list(set(custom_bins)))
+                    custom_bins = sorted(list(set([float(x.strip()) for x in user_bins.split(',')])))
                     if custom_bins[0] > 0: custom_bins.insert(0, 0)
                     if custom_bins[-1] < max_val: custom_bins.append(max_val)
                     if len(custom_bins) >= 2: bins_list = custom_bins
-                except:
-                    pass 
+                except: pass 
 
                 folium.Choropleth(
-                    geo_data=final_map_data,
-                    data=final_map_data,
-                    columns=[region_col, "Total_Penjualan"],
-                    key_on=f"feature.properties.{region_col}",
-                    fill_color=color_palette,
-                    fill_opacity=0.8,
-                    line_opacity=0.3,
-                    legend_name="Total Value (Z)",
-                    bins=bins_list, 
-                    highlight=True
+                    geo_data=final_map_data, data=final_map_data, columns=[region_col, "Total_Penjualan"],
+                    key_on=f"feature.properties.{region_col}", fill_color=color_palette, fill_opacity=0.8,
+                    line_opacity=0.3, legend_name="Total Value (Z)", bins=bins_list, highlight=True
                 ).add_to(m)
 
-                folium.GeoJson(
-                    final_map_data,
-                    style_function=lambda x: {'fillColor': '#00000000', 'color': '#00000000'},
-                    tooltip=folium.GeoJsonTooltip(fields=[region_col, 'Total_Penjualan'], aliases=['Area:', 'Value:'], localize=True)
-                ).add_to(m)
+                folium.GeoJson(final_map_data, style_function=lambda x: {'fillColor':'#00000000','color':'#00000000'}, tooltip=folium.GeoJsonTooltip(fields=[region_col, 'Total_Penjualan'], aliases=['Area:', 'Value:'], localize=True)).add_to(m)
 
-                # TAMPILKAN PETA & TANGKAP HASIL DRAWING
                 map_output = st_folium(m, use_container_width=True, height=600)
 
             with col_stats:
@@ -202,79 +141,71 @@ if uploaded_excel and uploaded_map:
                 st.metric("Total Observed Value", f"{final_map_data['Total_Penjualan'].sum():,.0f}")
                 st.markdown("---")
                 
-                # --- EXPORT SECTION (ADVANCED CANVAS) ---
+                # --- EXPORT SECTION ---
                 st.markdown("### Export Map")
-                st.caption("Gambar kotak (Rectangle) di peta untuk menentukan area crop.")
-                
+                st.caption("Gunakan alat 'Kotak' di peta untuk memilih area print.")
                 format_file = st.selectbox("Format:", ["PNG", "PDF"])
                 
                 if st.button("Generate Download Link"):
-                    with st.spinner("Processing Canvas Area..."):
+                    with st.spinner("Rendering Canvas..."):
                         
-                        # --- LOGIKA PENENTUAN BOUNDS (CANVAS) ---
-                        # Default: Full Extent data
+                        # 1. Tentukan Koordinat Crop
                         minx, miny, maxx, maxy = final_map_data.total_bounds
                         west, south, east, north = minx, miny, maxx, maxy
                         
-                        # Cek 1: Apakah User Menggambar Kotak (Prioritas Utama)?
                         if map_output['all_drawings']:
-                            # Ambil gambar terakhir
-                            last_draw = map_output['all_drawings'][-1]
-                            # Geometry tipe Polygon (Rectangle)
-                            coords = last_draw['geometry']['coordinates'][0] # List of [lon, lat]
-                            
-                            lons = [c[0] for c in coords]
-                            lats = [c[1] for c in coords]
-                            
-                            west, east = min(lons), max(lons)
-                            south, north = min(lats), max(lats)
-                            st.toast("✅ Menggunakan area 'Draw on Canvas' user.")
-                            
-                        # Cek 2: Jika tidak gambar, apakah pakai Viewport Zoom?
+                            coords = map_output['all_drawings'][-1]['geometry']['coordinates'][0]
+                            lons, lats = [c[0] for c in coords], [c[1] for c in coords]
+                            west, east, south, north = min(lons), max(lons), min(lats), max(lats)
                         elif map_output['bounds']:
                             b = map_output['bounds']
                             south, north = b['_southWest']['lat'], b['_northEast']['lat']
                             west, east = b['_southWest']['lng'], b['_northEast']['lng']
-                            st.toast("⚠️ Tidak ada kotak digambar. Menggunakan tampilan layar saat ini.")
 
-                        # --- RENDER MATPLOTLIB ---
-                        fig, ax = plt.subplots(figsize=(12, 8))
+                        # 2. Setup Figure Matplotlib
+                        fig, ax = plt.subplots(figsize=(10, 10)) # Canvas Square agar fleksibel
                         cmap_base = plt.get_cmap(color_palette)
-                        
-                        if bins_list:
-                             norm = mcolors.BoundaryNorm(bins_list, cmap_base.N)
-                        else:
-                             norm = mcolors.Normalize(vmin=0, vmax=max_val)
+                        norm = mcolors.BoundaryNorm(bins_list, cmap_base.N) if bins_list else mcolors.Normalize(vmin=0, vmax=max_val)
 
-                        final_map_data.plot(column='Total_Penjualan', cmap=cmap_base, norm=norm, ax=ax, edgecolor='black', linewidth=0.4)
+                        final_map_data.plot(column='Total_Penjualan', cmap=cmap_base, norm=norm, ax=ax, edgecolor='black', linewidth=0.5)
                         
-                        # POTONG SESUAI CANVAS (DRAWING / VIEWPORT)
+                        # 3. Crop Area
                         ax.set_xlim(west, east)
                         ax.set_ylim(south, north)
-                        ax.set_axis_off()
+                        ax.set_axis_off() # Matikan axis peta agar bersih
+
+                        # 4. LEGENDA (DIPERBAIKI: DI LUAR PETA)
+                        # Menggunakan inset_axes dengan bbox_to_anchor untuk menaruhnya di BAWAH peta
+                        # Koordinat (0.5, -0.05) berarti: Tengah Horizontal, Sedikit di bawah batas bawah axis
+                        cax = inset_axes(
+                            ax,
+                            width="60%",           # Lebar legend 60% dari lebar peta (proporsional)
+                            height="3%",           # Tinggi legend tipis
+                            loc='upper center',    # Titik jangkar di tengah atas box legend
+                            bbox_to_anchor=(0.5, -0.02), # Geser ke luar bawah peta
+                            bbox_transform=ax.transAxes,
+                            borderpad=0
+                        )
                         
-                        # Legend
-                        cax = inset_axes(ax, width="40%", height="3%", loc='upper right')
-                        cb = fig.colorbar(cm.ScalarMappable(norm=norm, cmap=cmap_base), cax=cax, orientation='horizontal', spacing='uniform')
-                        cb.set_label('Total Value', size=9, weight='bold')
-                        
+                        cb = fig.colorbar(
+                            cm.ScalarMappable(norm=norm, cmap=cmap_base),
+                            cax=cax,
+                            orientation='horizontal',
+                            spacing='uniform' # Jarak warna rata
+                        )
+                        cb.set_label('Total Penjualan (Rupiah)', size=10, weight='bold', labelpad=5)
+                        cb.ax.tick_params(labelsize=8)
+
+                        # 5. Simpan
                         img_buffer = io.BytesIO()
+                        # bbox_inches='tight' SANGAT PENTING: Ini akan otomatis memperluas gambar 
+                        # untuk memuat legenda yang ada di luar area peta tadi.
                         plt.savefig(img_buffer, format=format_file.lower(), transparent=True, bbox_inches='tight', dpi=300)
                         img_buffer.seek(0)
                         
-                        st.download_button(
-                            label=f"⬇️ Download {format_file}",
-                            data=img_buffer,
-                            file_name=f"Map_Canvas_Export.{format_file.lower()}",
-                            mime=f"image/{format_file.lower()}"
-                        )
+                        st.download_button(label=f"⬇️ Download {format_file}", data=img_buffer, file_name=f"Map_Export.{format_file.lower()}", mime=f"image/{format_file.lower()}")
 
         except Exception as e:
             st.error(f"Error: {e}")
 else:
-    st.markdown("""
-        <div style="text-align: center; padding: 50px; color: #666;">
-            <h2>No Data Loaded</h2>
-            <p>Please upload your Excel and Geometry files in the sidebar to begin analysis.</p>
-        </div>
-    """, unsafe_allow_html=True)
+    st.markdown("<div style='text-align: center; padding: 50px; color: #666;'><h2>No Data Loaded</h2></div>", unsafe_allow_html=True)
