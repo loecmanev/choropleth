@@ -140,39 +140,48 @@ if uploaded_excel and uploaded_map:
 
                 map_output = st_folium(m, use_container_width=True, height=600)
                 
-                # --- EXPORT PETA ---
-                with st.expander("⬇️ Export Map Image", expanded=False):
-                    format_file = st.selectbox("Map Format:", ["PNG", "PDF"], key="fmt_map")
-                    if st.button("Generate Map Download Link", key="btn_gen_map"):
-                         with st.spinner("Rendering Map..."):
-                            minx, miny, maxx, maxy = final_map_data.total_bounds
-                            west, south, east, north = minx, miny, maxx, maxy
-                            if map_output['all_drawings']:
-                                coords = map_output['all_drawings'][-1]['geometry']['coordinates'][0]
-                                lons, lats = [c[0] for c in coords], [c[1] for c in coords]
-                                west, east, south, north = min(lons), max(lons), min(lats), max(lats)
-                            elif map_output['bounds']:
-                                b = map_output['bounds']
-                                south, north = b['_southWest']['lat'], b['_northEast']['lat']
-                                west, east = b['_southWest']['lng'], b['_northEast']['lng']
+                # --- AUTO-RENDER MAP (LANGSUNG) ---
+                st.caption("Peta siap diunduh (Sesuai tampilan di atas)")
+                
+                # Menyiapkan Gambar Peta secara otomatis
+                minx, miny, maxx, maxy = final_map_data.total_bounds
+                west, south, east, north = minx, miny, maxx, maxy
+                if map_output['all_drawings']:
+                    coords = map_output['all_drawings'][-1]['geometry']['coordinates'][0]
+                    lons, lats = [c[0] for c in coords], [c[1] for c in coords]
+                    west, east, south, north = min(lons), max(lons), min(lats), max(lats)
+                elif map_output['bounds']:
+                    b = map_output['bounds']
+                    south, north = b['_southWest']['lat'], b['_northEast']['lat']
+                    west, east = b['_southWest']['lng'], b['_northEast']['lng']
 
-                            fig, ax = plt.subplots(figsize=(10, 10))
-                            cmap_base = plt.get_cmap(color_palette)
-                            norm = mcolors.BoundaryNorm(bins_list, cmap_base.N) if bins_list else mcolors.Normalize(vmin=0, vmax=max_val)
-                            
-                            final_map_data.plot(column='Total_Penjualan', cmap=cmap_base, norm=norm, ax=ax, edgecolor='black', linewidth=0.5)
-                            ax.set_xlim(west, east); ax.set_ylim(south, north); ax.set_axis_off()
+                # Matplotlib Plot
+                fig, ax = plt.subplots(figsize=(10, 10))
+                cmap_base = plt.get_cmap(color_palette)
+                norm = mcolors.BoundaryNorm(bins_list, cmap_base.N) if bins_list else mcolors.Normalize(vmin=0, vmax=max_val)
+                
+                final_map_data.plot(column='Total_Penjualan', cmap=cmap_base, norm=norm, ax=ax, edgecolor='black', linewidth=0.5)
+                ax.set_xlim(west, east); ax.set_ylim(south, north); ax.set_axis_off()
 
-                            # Legend Bawah Jauh
-                            cax = inset_axes(ax, width="100%", height="100%", loc='upper center', bbox_to_anchor=(0.2, -0.25, 0.6, 0.05), bbox_transform=ax.transAxes, borderpad=0)
-                            cb = fig.colorbar(cm.ScalarMappable(norm=norm, cmap=cmap_base), cax=cax, orientation='horizontal', spacing='uniform')
-                            cb.set_label('Total Penjualan (Stik)', size=10, weight='bold', labelpad=10)
-                            cb.ax.xaxis.set_ticks_position('bottom'); cb.ax.tick_params(labelsize=8)
+                # Legend Bawah Jauh
+                cax = inset_axes(ax, width="100%", height="100%", loc='upper center', bbox_to_anchor=(0.2, -0.25, 0.6, 0.05), bbox_transform=ax.transAxes, borderpad=0)
+                cb = fig.colorbar(cm.ScalarMappable(norm=norm, cmap=cmap_base), cax=cax, orientation='horizontal', spacing='uniform')
+                cb.set_label('Total Penjualan (Stik)', size=10, weight='bold', labelpad=10)
+                cb.ax.xaxis.set_ticks_position('bottom'); cb.ax.tick_params(labelsize=8)
 
-                            img_buffer = io.BytesIO()
-                            plt.savefig(img_buffer, format=format_file.lower(), transparent=True, bbox_inches='tight', dpi=300, pad_inches=0.2)
-                            img_buffer.seek(0)
-                            st.download_button(label=f"⬇️ Download Map", data=img_buffer, file_name=f"Map.{format_file.lower()}", mime=f"image/{format_file.lower()}", key="dl_map_btn")
+                img_buffer = io.BytesIO()
+                plt.savefig(img_buffer, format='png', transparent=True, bbox_inches='tight', dpi=300, pad_inches=0.2)
+                img_buffer.seek(0)
+                plt.close(fig) # Penting untuk memori
+                
+                # Tombol Download Langsung
+                st.download_button(
+                    label="⬇️ Download Map (PNG)", 
+                    data=img_buffer, 
+                    file_name="Map_Export.png", 
+                    mime="image/png", 
+                    key="dl_map_direct"
+                )
 
             # ==========================
             # PANEL KANAN: TABEL
@@ -184,7 +193,7 @@ if uploaded_excel and uploaded_map:
                 df_display = df_display.sort_values(by='Total_Penjualan', ascending=False).reset_index(drop=True)
                 df_display.columns = ['Kecamatan', 'Total Penjualan (Stik)']
                 
-                # Tampilkan Tabel (Full Scrollable)
+                # Tabel Scrollable
                 st.dataframe(
                     df_display, 
                     use_container_width=True, 
@@ -193,66 +202,45 @@ if uploaded_excel and uploaded_map:
                 )
                 
                 st.markdown("---")
-                st.markdown("### 📸 Export Table (Top 10 Only)")
+                st.markdown("### 📸 Export Table (Top 10)")
                 
-                col_fmt, col_btn = st.columns([1, 1])
-                with col_fmt:
-                    fmt_table = st.selectbox("Format:", ["JPG", "PNG"], key="fmt_table")
+                # --- AUTO-RENDER TABLE (LANGSUNG TOP 10) ---
+                df_export = df_display.head(10)
+                rows = len(df_export)
+                h = min(max(rows * 0.4 + 1.2, 3), 10) 
                 
-                if st.button("Generate Top 10 Table Image", key="btn_gen_table"):
-                    with st.spinner("Processing Table..."):
-                        
-                        # --- MODIFIKASI: AMBIL 10 TERATAS SAJA ---
-                        df_export = df_display.head(10)
-                        
-                        rows = len(df_export)
-                        # Tinggi gambar menyesuaikan jumlah baris (agar pas untuk 10 data)
-                        h = min(max(rows * 0.4 + 1.2, 3), 10) 
-                        
-                        fig_tbl, ax_tbl = plt.subplots(figsize=(6, h)) # Lebar diperkecil sedikit agar compact
-                        ax_tbl.axis('tight')
-                        ax_tbl.axis('off')
-                        
-                        cell_text = []
-                        for row in df_export.values:
-                            kec, val = row
-                            cell_text.append([kec, f"{val:,.0f}"])
-                        
-                        table_obj = ax_tbl.table(
-                            cellText=cell_text,
-                            colLabels=df_export.columns,
-                            loc='center',
-                            cellLoc='left',
-                            colColours=['#00264C', '#00264C']
-                        )
-                        
-                        table_obj.auto_set_font_size(False)
-                        table_obj.set_fontsize(11)
-                        table_obj.scale(1.2, 2)
-                        
-                        for (row, col), cell in table_obj.get_celld().items():
-                            if row == 0:
-                                cell.set_text_props(color='white', weight='bold')
-                                cell.set_linewidth(0)
-                            else:
-                                cell.set_linewidth(0.5)
-                                cell.set_edgecolor("#d1d5db")
-                        
-                        # Tambahkan Judul Kecil di Gambar
-                        plt.title(f"Top 10 Wilayah - {pilihan_provinsi}", y=1, pad=-14, fontsize=10, fontweight='bold', color='#333')
-                        
-                        buf_tbl = io.BytesIO()
-                        plt.savefig(buf_tbl, format=fmt_table.lower(), bbox_inches='tight', dpi=200, transparent=False)
-                        buf_tbl.seek(0)
-                        
-                        st.success("Tabel Top 10 siap diunduh!")
-                        st.download_button(
-                            label=f"⬇️ Download Top 10 Table",
-                            data=buf_tbl,
-                            file_name=f"Top10_Penjualan.{fmt_table.lower()}",
-                            mime=f"image/{fmt_table.lower()}",
-                            key="dl_table_btn"
-                        )
+                fig_tbl, ax_tbl = plt.subplots(figsize=(6, h))
+                ax_tbl.axis('tight'); ax_tbl.axis('off')
+                
+                cell_text = []
+                for row in df_export.values:
+                    kec, val = row
+                    cell_text.append([kec, f"{val:,.0f}"])
+                
+                table_obj = ax_tbl.table(cellText=cell_text, colLabels=df_export.columns, loc='center', cellLoc='left', colColours=['#00264C', '#00264C'])
+                table_obj.auto_set_font_size(False); table_obj.set_fontsize(11); table_obj.scale(1.2, 2)
+                
+                for (row, col), cell in table_obj.get_celld().items():
+                    if row == 0:
+                        cell.set_text_props(color='white', weight='bold'); cell.set_linewidth(0)
+                    else:
+                        cell.set_linewidth(0.5); cell.set_edgecolor("#d1d5db")
+                
+                plt.title(f"Top 10 Wilayah - {pilihan_provinsi}", y=1, pad=-14, fontsize=10, fontweight='bold', color='#333')
+                
+                buf_tbl = io.BytesIO()
+                plt.savefig(buf_tbl, format='png', bbox_inches='tight', dpi=200, transparent=False)
+                buf_tbl.seek(0)
+                plt.close(fig_tbl)
+                
+                # Tombol Download Langsung
+                st.download_button(
+                    label="⬇️ Download Top 10 Table (PNG)",
+                    data=buf_tbl,
+                    file_name="Top10_Table.png",
+                    mime="image/png",
+                    key="dl_table_direct"
+                )
 
         except Exception as e:
             st.error(f"Error: {e}")
