@@ -174,20 +174,20 @@ if uploaded_excel and uploaded_map:
                         ax.set_ylim(south, north)
                         ax.set_axis_off() 
 
-                        # 4. LEGENDA (HORIZONTAL - TOP RIGHT OUTSIDE)
-                        # Kita letakkan DI ATAS frame peta (y > 1.0) agar aman tidak menabrak pulau.
-                        # bbox_to_anchor=(x, y, width, height)
-                        # x=0.40 : Mulai dari 40% lebar peta (agar condong ke kanan)
-                        # y=1.02 : Sedikit di atas garis batas atas peta
-                        # w=0.60 : Lebar legenda 60% dari lebar peta
-                        # h=0.03 : Tinggi legenda tipis (3%)
+                       # 4. LEGENDA (FIXED: JAUH DI BAWAH PETA - DIJAMIN TIDAK NABRAK)
+                        # Kita gunakan bbox_to_anchor dengan koordinat negatif pada Y.
+                        # (x, y, width, height)
+                        # x=0.2  : Mulai 20% dari kiri (agar di tengah karena lebarnya 60%)
+                        # y=-0.25: Turunkan jauh ke bawah (25% dari tinggi area peta)
+                        # w=0.6  : Lebar legenda 60%
+                        # h=0.05 : Tinggi legenda 5%
                         
                         cax = inset_axes(
                             ax,
                             width="100%",       
                             height="100%",      
-                            loc='lower left',   
-                            bbox_to_anchor=(0.40, 1.02, 0.60, 0.03), # Posisi aman di atas-kanan
+                            loc='upper center',   
+                            bbox_to_anchor=(0.2, -0.25, 0.6, 0.05), # POSISI JAUH DI BAWAH
                             bbox_transform=ax.transAxes,
                             borderpad=0
                         )
@@ -195,14 +195,28 @@ if uploaded_excel and uploaded_map:
                         cb = fig.colorbar(
                             cm.ScalarMappable(norm=norm, cmap=cmap_base),
                             cax=cax,
-                            orientation='horizontal', # Kembali ke Horizontal
+                            orientation='horizontal',
                             spacing='uniform'
                         )
-                        # Label ditaruh di atas batang warna agar rapi
-                        cb.set_label('Total Penjualan (Rupiah)', size=9, weight='bold', labelpad=5)
-                        cb.ax.xaxis.set_ticks_position('bottom') # Angka di bawah batang
-                        cb.ax.tick_params(labelsize=7)
+                        # Label ditaruh di bawah batang
+                        cb.set_label('Total Penjualan (Rupiah)', size=10, weight='bold', labelpad=10)
+                        cb.ax.xaxis.set_ticks_position('bottom')
+                        cb.ax.tick_params(labelsize=8)
 
+                        # 5. Simpan
+                        img_buffer = io.BytesIO()
+                        # bbox_inches='tight' SANGAT PENTING: Ini akan otomatis memperluas
+                        # kanvas ke bawah untuk menangkap legenda yang jauh tersebut.
+                        plt.savefig(img_buffer, format=format_file.lower(), transparent=True, bbox_inches='tight', dpi=300, pad_inches=0.2)
+                        img_buffer.seek(0)
+                        
+                        st.download_button(
+                            label=f"⬇️ Download {format_file}",
+                            data=img_buffer,
+                            file_name=f"Map_Export.{format_file.lower()}",
+                            mime=f"image/{format_file.lower()}",
+                            key="btn_download_map_final_v4_bottom" # Key unik baru
+                        )
                         # 5. Simpan
                         img_buffer = io.BytesIO()
                         # bbox_inches='tight' akan otomatis memperluas kanvas ke atas untuk memuat legenda
@@ -235,5 +249,6 @@ if uploaded_excel and uploaded_map:
             st.error(f"Error: {e}")
 else:
     st.markdown("<div style='text-align: center; padding: 50px; color: #666;'><h2>No Data Loaded</h2></div>", unsafe_allow_html=True)
+
 
 
