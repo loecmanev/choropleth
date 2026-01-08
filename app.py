@@ -3,14 +3,16 @@ import pandas as pd
 import geopandas as gpd
 import folium
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import matplotlib.cm as cm
 import io
 from streamlit_folium import st_folium
-from folium.plugins import Fullscreen
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 # Konfigurasi Halaman
 st.set_page_config(page_title="Peta Penjualan Rokok", layout="wide")
 
-st.title("🗺️ Peta Interaktif & Export Vector")
+st.title("🗺️ Peta Interaktif & Export Canvas Style")
 
 # --- SIDEBAR ---
 with st.sidebar:
@@ -19,16 +21,14 @@ with st.sidebar:
     uploaded_map = st.file_uploader("Upload Peta (.geojson/.shp)", type=["geojson", "json", "shp"])
 
     st.header("2. Pengaturan Tampilan")
-    # Pilihan Palet Warna
     color_palette = st.selectbox(
         "Pilih Tema Warna:",
         ["YlOrRd", "PuBu", "YlGn", "OrRd", "RdPu", "Spectral", "coolwarm"],
         index=0
     )
     
-    # Pilihan Mode Klasifikasi
     classification_mode = st.radio(
-        "Metode Pembagian Kelas (Legend):",
+        "Metode Pembagian Kelas:",
         ["Otomatis (Quantile)", "Manual (Custom)"]
     )
 
@@ -58,7 +58,6 @@ if uploaded_excel and uploaded_map:
             geometry=gpd.points_from_xy(df.longitude, df.latitude),
             crs="EPSG:4326"
         )
-        
         joined = gpd.sjoin(gdf_points, gdf_kecamatan, how="inner", predicate="within")
 
         # AGREGASI
@@ -73,53 +72,41 @@ if uploaded_excel and uploaded_map:
         final_map_data['Total_Penjualan'] = final_map_data['Total_Penjualan'].fillna(0)
 
         # -----------------------------------------------------------
-        # LOGIKA BINS (PERBAIKAN UTAMA)
+        # LOGIKA BINS
         # -----------------------------------------------------------
         min_val = final_map_data['Total_Penjualan'].min()
         max_val = final_map_data['Total_Penjualan'].max()
         bins_list = None 
 
         if classification_mode == "Otomatis (Quantile)":
-            # Hitung 6 titik pembagi untuk mendapatkan 5 kelas warna (0%, 20%, 40%, 60%, 80%, 100%)
-            # Ini menjamin pembagian warna merata (Quantile)
             try:
                 quantiles = list(final_map_data['Total_Penjualan'].quantile([0, 0.2, 0.4, 0.6, 0.8, 1.0]))
-                # Hapus duplikat jika datanya banyak yang 0
                 bins_list = sorted(list(set(quantiles)))
-                # Jika hasil quantile kurang dari 3 kelas, fallback ke linear
-                if len(bins_list) < 4:
-                    bins_list = None 
+                if len(bins_list) < 4: bins_list = None 
             except:
-                bins_list = None # Gunakan default folium jika gagal
+                bins_list = None 
 
         elif classification_mode == "Manual (Custom)":
-            st.sidebar.info(f"Rentang Data: {min_val:,.0f} s/d {max_val:,.0f}")
-            
-            # Default value untuk input box
+            st.sidebar.info(f"Rentang: {min_val:,.0f} - {max_val:,.0f}")
             default_bins = f"{min_val}, {min_val + (max_val-min_val)/3:.0f}, {min_val + 2*(max_val-min_val)/3:.0f}, {max_val}"
-            
-            user_bins = st.sidebar.text_input("Masukkan batas nilai (pisahkan koma):", value=default_bins)
+            user_bins = st.sidebar.text_input("Batas nilai (pisahkan koma):", value=default_bins)
             
             try:
                 custom_bins = [float(x.strip()) for x in user_bins.split(',')]
-                custom_bins = sorted(list(set(custom_bins))) # Urutkan & Hapus duplikat
-                
-                # Pastikan mencakup min & max
+                custom_bins = sorted(list(set(custom_bins)))
                 if custom_bins[0] > min_val: custom_bins.insert(0, min_val)
                 if custom_bins[-1] < max_val: custom_bins.append(max_val)
                 
-                # CEK ERROR MINIMAL WARNA
                 if len(custom_bins) < 4:
-                    st.sidebar.warning("⚠️ Minimal harus ada 4 angka batas untuk menghasilkan 3 warna. Menggunakan mode otomatis sementara.")
+                    st.sidebar.warning("⚠️ Minimal 4 batas. Menggunakan mode otomatis.")
                     bins_list = None
                 else:
                     bins_list = custom_bins
-                    st.sidebar.success(f"Menggunakan {len(bins_list)-1} kelas warna.")
             except:
                 st.sidebar.error("Format angka salah.")
 
         # -----------------------------------------------------------
-        # VISUALISASI FOLIUM (INTERAKTIF)
+        # VISUALISASI UTAMA
         # -----------------------------------------------------------
         centroid = final_map_data.geometry.centroid
         m = folium.Map(location=[centroid.y.mean(), centroid.x.mean()], zoom_start=8, tiles="CartoDB positron")
@@ -150,7 +137,9 @@ if uploaded_excel and uploaded_map:
         col1, col2 = st.columns([3, 1])
         with col1:
             st.subheader(f"Peta Interaktif: {pilihan_provinsi}")
-            st_folium(m, use_container_width=True)
+            # PENTING: Kita tampung output st_folium ke variabel 'map_output'
+            # untuk menangkap posisi zoom/geser user terakhir
+            map_output = st_folium(m, use_container_width=True)
 
         with col2:
             st.subheader("Statistik")
@@ -158,44 +147,100 @@ if uploaded_excel and uploaded_map:
             st.dataframe(final_map_data.sort_values(by='Total_Penjualan', ascending=False)[[region_col, 'Total_Penjualan']].head(10), hide_index=True)
 
             # -----------------------------------------------------------
-            # FITUR BARU: EXPORT VECTOR (PNG/SVG) TRANSPARAN
+            # FITUR EXPORT: "DRAW BY CANVAS" + COMPACT LEGEND
             # -----------------------------------------------------------
             st.markdown("---")
-            st.subheader("⬇️ Download Peta")
-            st.write("Download peta statis resolusi tinggi dengan background transparan.")
+            st.subheader("⬇️ Export View")
+            st.write("Download tampilan peta sesuai zoom saat ini (Canvas Style).")
             
-            format_file = st.selectbox("Format:", ["PNG", "SVG", "PDF"])
+            format_file = st.selectbox("Format:", ["PNG", "SVG"])
             
-            if st.button("Generate File Download"):
-                with st.spinner("Sedang membuat file vector..."):
-                    # Membuat Plot Matplotlib (Backend untuk Vector)
+            if st.button("Generate from Current View"):
+                with st.spinner("Sedang merender ulang tampilan (Canvas)..."):
+                    
+                    # 1. Ambil Koordinat Batas (Bounds) dari Interaksi User Terakhir
+                    bounds = map_output.get("bounds")
+                    if bounds:
+                        south = bounds['_southWest']['lat']
+                        north = bounds['_northEast']['lat']
+                        west = bounds['_southWest']['lng']
+                        east = bounds['_northEast']['lng']
+                    else:
+                        # Jika user belum menyentuh peta, pakai batas default data
+                        minx, miny, maxx, maxy = final_map_data.total_bounds
+                        west, south, east, north = minx, miny, maxx, maxy
+
+                    # 2. Siapkan Plotting Matplotlib (Backend Vector)
+                    # Rasio aspek disesuaikan dengan map view
                     fig, ax = plt.subplots(figsize=(10, 6))
                     
-                    # Plot Peta
+                    # Logika Warna (Normalize) agar sesuai dengan interaktif
+                    cmap = plt.get_cmap(color_palette)
+                    if bins_list:
+                        norm = mcolors.BoundaryNorm(bins_list, cmap.N)
+                    else:
+                        norm = mcolors.Normalize(vmin=min_val, vmax=max_val)
+
+                    # 3. Plot Peta
                     final_map_data.plot(
                         column='Total_Penjualan',
-                        cmap=color_palette,
-                        legend=True,
-                        legend_kwds={'label': "Total Penjualan (Z)", 'orientation': "horizontal"},
+                        cmap=cmap,
+                        norm=norm,
                         ax=ax,
                         edgecolor='black',
-                        linewidth=0.5
+                        linewidth=0.3
                     )
                     
-                    # Hilangkan Axis (Kotak Koordinat) agar bersih
-                    ax.set_axis_off()
-                    ax.set_title(f"Peta Penjualan - {pilihan_provinsi}", fontsize=15)
+                    # 4. POTONG SESUAI CANVAS (Draw by Canvas)
+                    ax.set_xlim(west, east)
+                    ax.set_ylim(south, north)
+                    ax.set_axis_off() # Hilangkan kotak koordinat
                     
-                    # Simpan ke Buffer (Memori)
+                    # 5. CUSTOM LEGEND (POJOK KANAN ATAS - COMPACT)
+                    # Membuat axis kecil melayang di dalam axis utama (Inset Axes)
+                    # [x, y, width, height] relatif terhadap axis utama (0-1)
+                    # Posisi (0.65, 0.95) = Pojok Kanan Atas
+                    cax = inset_axes(ax,
+                                    width="30%",  # Lebar colorbar 30% dari lebar peta
+                                    height="3%",  # Tinggi colorbar tipis (3%)
+                                    loc='upper right',
+                                    bbox_to_anchor=(0, -0.05, 1, 1), # Sedikit geser ke bawah dari batas atas
+                                    bbox_transform=ax.transAxes,
+                                    borderpad=0)
+                    
+                    # Gambar Colorbar Horizontal
+                    cb = fig.colorbar(
+                        cm.ScalarMappable(norm=norm, cmap=cmap),
+                        cax=cax,
+                        orientation='horizontal',
+                        spacing='proportional'
+                    )
+                    
+                    # Styling Legenda agar kecil dan rapi
+                    cb.ax.tick_params(labelsize=6, color='black') # Ukuran font kecil
+                    cb.set_label('Total Penjualan (Z)', size=7, labelpad=-25, y=1.5) # Label di atas bar
+                    
+                    # Transparansi Background
+                    fig.patch.set_alpha(0.0)
+                    ax.patch.set_alpha(0.0)
+
+                    # 6. Simpan ke Buffer
                     img_buffer = io.BytesIO()
-                    plt.savefig(img_buffer, format=format_file.lower(), transparent=True, dpi=300, bbox_inches='tight')
+                    plt.savefig(
+                        img_buffer, 
+                        format=format_file.lower(), 
+                        transparent=True, 
+                        dpi=150 if format_file == "PNG" else None, 
+                        bbox_inches='tight',
+                        pad_inches=0.1
+                    )
                     img_buffer.seek(0)
                     
                     st.download_button(
-                        label=f"Klik untuk Download {format_file}",
+                        label=f"Download {format_file}",
                         data=img_buffer,
-                        file_name=f"peta_penjualan_{pilihan_provinsi}.{format_file.lower()}",
-                        mime=f"image/{format_file.lower()}" if format_file != "PDF" else "application/pdf"
+                        file_name=f"peta_canvas_{pilihan_provinsi}.{format_file.lower()}",
+                        mime=f"image/{format_file.lower()}" if format_file != "SVG" else "image/svg+xml"
                     )
 
     except Exception as e:
