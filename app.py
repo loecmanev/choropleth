@@ -101,7 +101,6 @@ if uploaded_excel and uploaded_map:
             default_str = ", ".join([str(int(x)) for x in linear_breaks])
 
             # --- LAYOUT DASHBOARD (SPLIT VIEW) ---
-            # Kolom kiri (2.3) untuk Peta, Kolom kanan (1.7) untuk Tabel agar lega
             col_map, col_stats = st.columns([2.3, 1.7])
 
             # ==========================
@@ -131,14 +130,23 @@ if uploaded_excel and uploaded_map:
                 folium.Choropleth(
                     geo_data=final_map_data, data=final_map_data, columns=[region_col, "Total_Penjualan"],
                     key_on=f"feature.properties.{region_col}", fill_color=color_palette, fill_opacity=0.8,
-                    line_opacity=0.3, legend_name="Total Value (Z)", bins=bins_list, highlight=True
+                    line_opacity=0.3, legend_name="Total Penjualan (Stik)", bins=bins_list, highlight=True
                 ).add_to(m)
                 
-                folium.GeoJson(final_map_data, style_function=lambda x: {'fillColor':'#00000000','color':'#00000000'}, tooltip=folium.GeoJsonTooltip(fields=[region_col, 'Total_Penjualan'], aliases=['Area:', 'Value:'], localize=True)).add_to(m)
+                # Tooltip: Ubah Alias jadi 'Total Stik'
+                folium.GeoJson(
+                    final_map_data, 
+                    style_function=lambda x: {'fillColor':'#00000000','color':'#00000000'}, 
+                    tooltip=folium.GeoJsonTooltip(
+                        fields=[region_col, 'Total_Penjualan'], 
+                        aliases=['Kecamatan:', 'Total Stik:'], 
+                        localize=True
+                    )
+                ).add_to(m)
 
                 map_output = st_folium(m, use_container_width=True, height=600)
                 
-                # --- EXPORT PETA (LOGIC YANG SUDAH FIXED) ---
+                # --- EXPORT PETA ---
                 with st.expander("⬇️ Export Map Image", expanded=False):
                     format_file = st.selectbox("Map Format:", ["PNG", "PDF"], key="fmt_map")
                     if st.button("Generate Map Download Link", key="btn_gen_map"):
@@ -161,10 +169,12 @@ if uploaded_excel and uploaded_map:
                             final_map_data.plot(column='Total_Penjualan', cmap=cmap_base, norm=norm, ax=ax, edgecolor='black', linewidth=0.5)
                             ax.set_xlim(west, east); ax.set_ylim(south, north); ax.set_axis_off()
 
-                            # Legend Bawah
+                            # Legend Bawah (Jauh, Tidak Nabrak)
                             cax = inset_axes(ax, width="100%", height="100%", loc='upper center', bbox_to_anchor=(0.2, -0.25, 0.6, 0.05), bbox_transform=ax.transAxes, borderpad=0)
                             cb = fig.colorbar(cm.ScalarMappable(norm=norm, cmap=cmap_base), cax=cax, orientation='horizontal', spacing='uniform')
-                            cb.set_label('Total Penjualan (Rupiah)', size=10, weight='bold', labelpad=10)
+                            
+                            # Label Legend: STIK
+                            cb.set_label('Total Penjualan (Stik)', size=10, weight='bold', labelpad=10)
                             cb.ax.xaxis.set_ticks_position('bottom'); cb.ax.tick_params(labelsize=8)
 
                             img_buffer = io.BytesIO()
@@ -173,7 +183,7 @@ if uploaded_excel and uploaded_map:
                             st.download_button(label=f"⬇️ Download Map", data=img_buffer, file_name=f"Map.{format_file.lower()}", mime=f"image/{format_file.lower()}", key="dl_map_btn")
 
             # ==========================
-            # PANEL KANAN: TABEL & EXPORT TABEL
+            # PANEL KANAN: TABEL
             # ==========================
             with col_stats:
                 st.markdown("### 📋 Data Breakdown")
@@ -181,58 +191,54 @@ if uploaded_excel and uploaded_map:
                 # Persiapan Data Tabel
                 df_display = final_map_data[[region_col, 'Total_Penjualan']].copy()
                 df_display = df_display.sort_values(by='Total_Penjualan', ascending=False).reset_index(drop=True)
-                df_display.columns = ['Kecamatan', 'Total Penjualan (Rp)']
                 
-                # 1. Tampilkan Tabel Interaktif
+                # Rename Header jadi STIK
+                df_display.columns = ['Kecamatan', 'Total Penjualan (Stik)']
+                
+                # 1. Tampilkan Tabel Interaktif (Tanpa Format Rp)
                 st.dataframe(
                     df_display, 
                     use_container_width=True, 
                     height=400,
                     column_config={
-                        "Total Penjualan (Rp)": st.column_config.NumberColumn(format="Rp %d")
+                        "Total Penjualan (Stik)": st.column_config.NumberColumn(format="%d") # Angka biasa
                     }
                 )
                 
                 st.markdown("---")
                 st.markdown("### 📸 Export Table as Image")
                 
-                # 2. Fitur Export Tabel ke JPG
                 col_fmt, col_btn = st.columns([1, 1])
                 with col_fmt:
                     fmt_table = st.selectbox("Format:", ["JPG", "PNG"], key="fmt_table")
                 
                 if st.button("Generate Table Image", key="btn_gen_table"):
                     with st.spinner("Converting Table to Image..."):
-                        # Buat Figure Matplotlib Khusus Tabel
-                        # Tinggi gambar disesuaikan dengan jumlah baris (row * 0.5 inci)
                         rows = len(df_display)
-                        h = min(max(rows * 0.3 + 1, 3), 50) # Batasi tinggi min 3, max 50
+                        h = min(max(rows * 0.3 + 1, 3), 50)
                         
                         fig_tbl, ax_tbl = plt.subplots(figsize=(8, h))
                         ax_tbl.axis('tight')
                         ax_tbl.axis('off')
                         
-                        # Format angka rupiah manual untuk matplotlib
                         cell_text = []
                         for row in df_display.values:
                             kec, val = row
-                            cell_text.append([kec, f"Rp {val:,.0f}"])
+                            # Format Angka biasa (Stik)
+                            cell_text.append([kec, f"{val:,.0f}"])
                         
-                        # Gambar Tabel
                         table_obj = ax_tbl.table(
                             cellText=cell_text,
                             colLabels=df_display.columns,
                             loc='center',
                             cellLoc='left',
-                            colColours=['#00264C', '#00264C'] # Header biru tua ala USGS
+                            colColours=['#00264C', '#00264C']
                         )
                         
-                        # Styling Tabel
                         table_obj.auto_set_font_size(False)
                         table_obj.set_fontsize(11)
-                        table_obj.scale(1.2, 2) # Padding sel (Lebar, Tinggi)
+                        table_obj.scale(1.2, 2)
                         
-                        # Warnai Header Teks Putih
                         for (row, col), cell in table_obj.get_celld().items():
                             if row == 0:
                                 cell.set_text_props(color='white', weight='bold')
@@ -241,7 +247,6 @@ if uploaded_excel and uploaded_map:
                                 cell.set_linewidth(0.5)
                                 cell.set_edgecolor("#d1d5db")
                         
-                        # Simpan ke Buffer
                         buf_tbl = io.BytesIO()
                         plt.savefig(buf_tbl, format=fmt_table.lower(), bbox_inches='tight', dpi=200, transparent=False)
                         buf_tbl.seek(0)
