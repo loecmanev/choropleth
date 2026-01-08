@@ -163,7 +163,7 @@ if uploaded_excel and uploaded_map:
                             west, east = b['_southWest']['lng'], b['_northEast']['lng']
 
                         # 2. Setup Figure Matplotlib
-                        fig, ax = plt.subplots(figsize=(10, 10)) # Canvas Square agar fleksibel
+                        fig, ax = plt.subplots(figsize=(10, 10)) 
                         cmap_base = plt.get_cmap(color_palette)
                         norm = mcolors.BoundaryNorm(bins_list, cmap_base.N) if bins_list else mcolors.Normalize(vmin=0, vmax=max_val)
 
@@ -172,22 +172,16 @@ if uploaded_excel and uploaded_map:
                         # 3. Crop Area
                         ax.set_xlim(west, east)
                         ax.set_ylim(south, north)
-                        ax.set_axis_off() # Matikan axis peta agar bersih
+                        ax.set_axis_off() 
 
-                        # 4. LEGENDA (DIPERBAIKI: DEFINISI EKSPLISIT 4-TUPLE)
-                        # Kita gunakan bbox_to_anchor dengan 4 angka: (x, y, width, height)
-                        # Koordinat ini relatif terhadap axes peta (transAxes).
-                        # x=0.2  : Mulai dari 20% lebar peta (supaya di tengah, karena lebarnya 60%)
-                        # y=-0.08: Di bawah peta (jarak sekitar 8% dari garis bawah)
-                        # w=0.6  : Lebar legenda 60% dari lebar peta
-                        # h=0.03 : Tinggi legenda 3% dari tinggi peta
-                        
+                        # 4. LEGENDA (FIXED: 4-TUPLE UNTUK MENGHINDARI ERROR RELATIVE UNITS)
+                        # Koordinat (x, y, width, height)
                         cax = inset_axes(
                             ax,
-                            width="100%",    # Penuhi kotak yang kita buat di bbox_to_anchor
-                            height="100%",   # Penuhi kotak yang kita buat di bbox_to_anchor
+                            width="100%",    
+                            height="100%",   
                             loc='upper center',
-                            bbox_to_anchor=(0.2, -0.08, 0.6, 0.03), # (x, y, width, height)
+                            bbox_to_anchor=(0.2, -0.08, 0.6, 0.03), # Posisi fix di bawah peta
                             bbox_transform=ax.transAxes,
                             borderpad=0
                         )
@@ -203,27 +197,19 @@ if uploaded_excel and uploaded_map:
 
                         # 5. Simpan
                         img_buffer = io.BytesIO()
-                        # bbox_inches='tight' akan otomatis memperluas canvas untuk menangkap legenda di bawah
                         plt.savefig(img_buffer, format=format_file.lower(), transparent=True, bbox_inches='tight', dpi=300)
                         img_buffer.seek(0)
                         
+                        # FIX "DUPLICATE ID": TAMBAHKAN KEY UNIK
                         st.download_button(
-                            label=f"⬇️ Download {format_file}", 
-                            data=img_buffer, 
-                            file_name=f"Map_Export.{format_file.lower()}", 
-                            mime=f"image/{format_file.lower()}"
+                            label=f"⬇️ Download {format_file}",
+                            data=img_buffer,
+                            file_name=f"Map_Export.{format_file.lower()}",
+                            mime=f"image/{format_file.lower()}",
+                            key="btn_download_map_final"  # <--- INI KUNCINYA
                         )
-                        # 5. Simpan
-                        img_buffer = io.BytesIO()
-                        # bbox_inches='tight' SANGAT PENTING: Ini akan otomatis memperluas gambar 
-                        # untuk memuat legenda yang ada di luar area peta tadi.
-                        plt.savefig(img_buffer, format=format_file.lower(), transparent=True, bbox_inches='tight', dpi=300)
-                        img_buffer.seek(0)
-                        
-                        st.download_button(label=f"⬇️ Download {format_file}", data=img_buffer, file_name=f"Map_Export.{format_file.lower()}", mime=f"image/{format_file.lower()}")
 
         except Exception as e:
             st.error(f"Error: {e}")
 else:
     st.markdown("<div style='text-align: center; padding: 50px; color: #666;'><h2>No Data Loaded</h2></div>", unsafe_allow_html=True)
-
