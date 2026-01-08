@@ -95,26 +95,28 @@ if uploaded_excel and uploaded_map:
             final_map_data = gdf_kecamatan.merge(agg_data, on=region_col, how="left")
             final_map_data['Total_Penjualan'] = final_map_data['Total_Penjualan'].fillna(0)
 
-            # Bins (0, 25, 50, 75, 100%)
+            # Bins
             max_val = final_map_data['Total_Penjualan'].max()
             linear_breaks = sorted(list(set([0, max_val * 0.25, max_val * 0.50, max_val * 0.75, max_val])))
             default_str = ", ".join([str(int(x)) for x in linear_breaks])
 
-            # --- LAYOUT DASHBOARD ---
-            col_map, col_stats = st.columns([3, 1])
+            # --- LAYOUT DASHBOARD (SPLIT VIEW) ---
+            # Kolom kiri (2.3) untuk Peta, Kolom kanan (1.7) untuk Tabel agar lega
+            col_map, col_stats = st.columns([2.3, 1.7])
 
+            # ==========================
+            # PANEL KIRI: PETA
+            # ==========================
             with col_map:
                 st.markdown(f"**Map View: {pilihan_provinsi}**")
                 
-                # Peta (Micro-Zoom)
                 centroid = final_map_data.geometry.centroid
                 m = folium.Map(location=[centroid.y.mean(), centroid.x.mean()], zoom_start=9, tiles="CartoDB positron", zoom_snap=0.1, zoom_delta=0.1)
                 
-                # Draw Tool
                 draw = Draw(export=False, position='topleft', draw_options={'polyline':False,'polygon':False,'circle':False,'marker':False,'circlemarker':False,'rectangle':True})
                 draw.add_to(m)
 
-                # Legend Sidebar Input
+                # Legend Sidebar logic
                 with st.sidebar.expander("🎚️ Legend Configuration", expanded=True):
                      user_bins = st.text_area("Value Breaks:", value=default_str)
                 
@@ -131,124 +133,129 @@ if uploaded_excel and uploaded_map:
                     key_on=f"feature.properties.{region_col}", fill_color=color_palette, fill_opacity=0.8,
                     line_opacity=0.3, legend_name="Total Value (Z)", bins=bins_list, highlight=True
                 ).add_to(m)
-
+                
                 folium.GeoJson(final_map_data, style_function=lambda x: {'fillColor':'#00000000','color':'#00000000'}, tooltip=folium.GeoJsonTooltip(fields=[region_col, 'Total_Penjualan'], aliases=['Area:', 'Value:'], localize=True)).add_to(m)
 
                 map_output = st_folium(m, use_container_width=True, height=600)
+                
+                # --- EXPORT PETA (LOGIC YANG SUDAH FIXED) ---
+                with st.expander("⬇️ Export Map Image", expanded=False):
+                    format_file = st.selectbox("Map Format:", ["PNG", "PDF"], key="fmt_map")
+                    if st.button("Generate Map Download Link", key="btn_gen_map"):
+                         with st.spinner("Rendering Map..."):
+                            minx, miny, maxx, maxy = final_map_data.total_bounds
+                            west, south, east, north = minx, miny, maxx, maxy
+                            if map_output['all_drawings']:
+                                coords = map_output['all_drawings'][-1]['geometry']['coordinates'][0]
+                                lons, lats = [c[0] for c in coords], [c[1] for c in coords]
+                                west, east, south, north = min(lons), max(lons), min(lats), max(lats)
+                            elif map_output['bounds']:
+                                b = map_output['bounds']
+                                south, north = b['_southWest']['lat'], b['_northEast']['lat']
+                                west, east = b['_southWest']['lng'], b['_northEast']['lng']
 
+                            fig, ax = plt.subplots(figsize=(10, 10))
+                            cmap_base = plt.get_cmap(color_palette)
+                            norm = mcolors.BoundaryNorm(bins_list, cmap_base.N) if bins_list else mcolors.Normalize(vmin=0, vmax=max_val)
+                            
+                            final_map_data.plot(column='Total_Penjualan', cmap=cmap_base, norm=norm, ax=ax, edgecolor='black', linewidth=0.5)
+                            ax.set_xlim(west, east); ax.set_ylim(south, north); ax.set_axis_off()
+
+                            # Legend Bawah
+                            cax = inset_axes(ax, width="100%", height="100%", loc='upper center', bbox_to_anchor=(0.2, -0.25, 0.6, 0.05), bbox_transform=ax.transAxes, borderpad=0)
+                            cb = fig.colorbar(cm.ScalarMappable(norm=norm, cmap=cmap_base), cax=cax, orientation='horizontal', spacing='uniform')
+                            cb.set_label('Total Penjualan (Rupiah)', size=10, weight='bold', labelpad=10)
+                            cb.ax.xaxis.set_ticks_position('bottom'); cb.ax.tick_params(labelsize=8)
+
+                            img_buffer = io.BytesIO()
+                            plt.savefig(img_buffer, format=format_file.lower(), transparent=True, bbox_inches='tight', dpi=300, pad_inches=0.2)
+                            img_buffer.seek(0)
+                            st.download_button(label=f"⬇️ Download Map", data=img_buffer, file_name=f"Map.{format_file.lower()}", mime=f"image/{format_file.lower()}", key="dl_map_btn")
+
+            # ==========================
+            # PANEL KANAN: TABEL & EXPORT TABEL
+            # ==========================
             with col_stats:
-                st.markdown("### Results Summary")
-                st.metric("Total Observed Value", f"{final_map_data['Total_Penjualan'].sum():,.0f}")
+                st.markdown("### 📋 Data Breakdown")
+                
+                # Persiapan Data Tabel
+                df_display = final_map_data[[region_col, 'Total_Penjualan']].copy()
+                df_display = df_display.sort_values(by='Total_Penjualan', ascending=False).reset_index(drop=True)
+                df_display.columns = ['Kecamatan', 'Total Penjualan (Rp)']
+                
+                # 1. Tampilkan Tabel Interaktif
+                st.dataframe(
+                    df_display, 
+                    use_container_width=True, 
+                    height=400,
+                    column_config={
+                        "Total Penjualan (Rp)": st.column_config.NumberColumn(format="Rp %d")
+                    }
+                )
+                
                 st.markdown("---")
+                st.markdown("### 📸 Export Table as Image")
                 
-                # --- EXPORT SECTION ---
-                st.markdown("### Export Map")
-                st.caption("Gunakan alat 'Kotak' di peta untuk memilih area print.")
-                format_file = st.selectbox("Format:", ["PNG", "PDF"])
+                # 2. Fitur Export Tabel ke JPG
+                col_fmt, col_btn = st.columns([1, 1])
+                with col_fmt:
+                    fmt_table = st.selectbox("Format:", ["JPG", "PNG"], key="fmt_table")
                 
-                if st.button("Generate Download Link"):
-                    with st.spinner("Rendering Canvas..."):
+                if st.button("Generate Table Image", key="btn_gen_table"):
+                    with st.spinner("Converting Table to Image..."):
+                        # Buat Figure Matplotlib Khusus Tabel
+                        # Tinggi gambar disesuaikan dengan jumlah baris (row * 0.5 inci)
+                        rows = len(df_display)
+                        h = min(max(rows * 0.3 + 1, 3), 50) # Batasi tinggi min 3, max 50
                         
-                        # 1. Tentukan Koordinat Crop
-                        minx, miny, maxx, maxy = final_map_data.total_bounds
-                        west, south, east, north = minx, miny, maxx, maxy
+                        fig_tbl, ax_tbl = plt.subplots(figsize=(8, h))
+                        ax_tbl.axis('tight')
+                        ax_tbl.axis('off')
                         
-                        if map_output['all_drawings']:
-                            coords = map_output['all_drawings'][-1]['geometry']['coordinates'][0]
-                            lons, lats = [c[0] for c in coords], [c[1] for c in coords]
-                            west, east, south, north = min(lons), max(lons), min(lats), max(lats)
-                        elif map_output['bounds']:
-                            b = map_output['bounds']
-                            south, north = b['_southWest']['lat'], b['_northEast']['lat']
-                            west, east = b['_southWest']['lng'], b['_northEast']['lng']
-
-                        # 2. Setup Figure Matplotlib
-                        fig, ax = plt.subplots(figsize=(10, 10)) 
-                        cmap_base = plt.get_cmap(color_palette)
-                        norm = mcolors.BoundaryNorm(bins_list, cmap_base.N) if bins_list else mcolors.Normalize(vmin=0, vmax=max_val)
-
-                        final_map_data.plot(column='Total_Penjualan', cmap=cmap_base, norm=norm, ax=ax, edgecolor='black', linewidth=0.5)
+                        # Format angka rupiah manual untuk matplotlib
+                        cell_text = []
+                        for row in df_display.values:
+                            kec, val = row
+                            cell_text.append([kec, f"Rp {val:,.0f}"])
                         
-                        # 3. Crop Area
-                        ax.set_xlim(west, east)
-                        ax.set_ylim(south, north)
-                        ax.set_axis_off() 
-
-                       # 4. LEGENDA (FIXED: JAUH DI BAWAH PETA - DIJAMIN TIDAK NABRAK)
-                        # Kita gunakan bbox_to_anchor dengan koordinat negatif pada Y.
-                        # (x, y, width, height)
-                        # x=0.2  : Mulai 20% dari kiri (agar di tengah karena lebarnya 60%)
-                        # y=-0.25: Turunkan jauh ke bawah (25% dari tinggi area peta)
-                        # w=0.6  : Lebar legenda 60%
-                        # h=0.05 : Tinggi legenda 5%
-                        
-                        cax = inset_axes(
-                            ax,
-                            width="100%",       
-                            height="100%",      
-                            loc='upper center',   
-                            bbox_to_anchor=(0.2, -0.25, 0.6, 0.05), # POSISI JAUH DI BAWAH
-                            bbox_transform=ax.transAxes,
-                            borderpad=0
+                        # Gambar Tabel
+                        table_obj = ax_tbl.table(
+                            cellText=cell_text,
+                            colLabels=df_display.columns,
+                            loc='center',
+                            cellLoc='left',
+                            colColours=['#00264C', '#00264C'] # Header biru tua ala USGS
                         )
                         
-                        cb = fig.colorbar(
-                            cm.ScalarMappable(norm=norm, cmap=cmap_base),
-                            cax=cax,
-                            orientation='horizontal',
-                            spacing='uniform'
-                        )
-                        # Label ditaruh di bawah batang
-                        cb.set_label('Total Penjualan (Rupiah)', size=10, weight='bold', labelpad=10)
-                        cb.ax.xaxis.set_ticks_position('bottom')
-                        cb.ax.tick_params(labelsize=8)
-
-                        # 5. Simpan
-                        img_buffer = io.BytesIO()
-                        # bbox_inches='tight' SANGAT PENTING: Ini akan otomatis memperluas
-                        # kanvas ke bawah untuk menangkap legenda yang jauh tersebut.
-                        plt.savefig(img_buffer, format=format_file.lower(), transparent=True, bbox_inches='tight', dpi=300, pad_inches=0.2)
-                        img_buffer.seek(0)
+                        # Styling Tabel
+                        table_obj.auto_set_font_size(False)
+                        table_obj.set_fontsize(11)
+                        table_obj.scale(1.2, 2) # Padding sel (Lebar, Tinggi)
                         
+                        # Warnai Header Teks Putih
+                        for (row, col), cell in table_obj.get_celld().items():
+                            if row == 0:
+                                cell.set_text_props(color='white', weight='bold')
+                                cell.set_linewidth(0)
+                            else:
+                                cell.set_linewidth(0.5)
+                                cell.set_edgecolor("#d1d5db")
+                        
+                        # Simpan ke Buffer
+                        buf_tbl = io.BytesIO()
+                        plt.savefig(buf_tbl, format=fmt_table.lower(), bbox_inches='tight', dpi=200, transparent=False)
+                        buf_tbl.seek(0)
+                        
+                        st.success("Tabel siap diunduh!")
                         st.download_button(
-                            label=f"⬇️ Download {format_file}",
-                            data=img_buffer,
-                            file_name=f"Map_Export.{format_file.lower()}",
-                            mime=f"image/{format_file.lower()}",
-                            key="btn_download_map_final_v4_bottom" # Key unik baru
-                        )
-                        # 5. Simpan
-                        img_buffer = io.BytesIO()
-                        # bbox_inches='tight' akan otomatis memperluas kanvas ke atas untuk memuat legenda
-                        plt.savefig(img_buffer, format=format_file.lower(), transparent=True, bbox_inches='tight', dpi=300)
-                        img_buffer.seek(0)
-                        
-                        st.download_button(
-                            label=f"⬇️ Download {format_file}",
-                            data=img_buffer,
-                            file_name=f"Map_Export.{format_file.lower()}",
-                            mime=f"image/{format_file.lower()}",
-                            key="btn_download_map_final_horizontal_v3" # Key unik baru
-                        )
-
-                        # 5. Simpan
-                        img_buffer = io.BytesIO()
-                        plt.savefig(img_buffer, format=format_file.lower(), transparent=True, bbox_inches='tight', dpi=300)
-                        img_buffer.seek(0)
-                        
-                        # FIX "DUPLICATE ID": TAMBAHKAN KEY UNIK
-                        st.download_button(
-                            label=f"⬇️ Download {format_file}",
-                            data=img_buffer,
-                            file_name=f"Map_Export.{format_file.lower()}",
-                            mime=f"image/{format_file.lower()}",
-                            key="btn_download_map_final"  # <--- INI KUNCINYA
+                            label=f"⬇️ Download Table Image",
+                            data=buf_tbl,
+                            file_name=f"Tabel_Penjualan.{fmt_table.lower()}",
+                            mime=f"image/{fmt_table.lower()}",
+                            key="dl_table_btn"
                         )
 
         except Exception as e:
             st.error(f"Error: {e}")
 else:
     st.markdown("<div style='text-align: center; padding: 50px; color: #666;'><h2>No Data Loaded</h2></div>", unsafe_allow_html=True)
-
-
-
