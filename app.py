@@ -17,9 +17,23 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. INJECT CSS KHUSUS (USGS STYLE + DARK SIDEBAR) ---
+# --- 2. INJECT CSS KHUSUS (USGS STYLE + DARK SIDEBAR + ANTI REDUP) ---
 st.markdown("""
     <style>
+        /* --- ANTI-DIMMING / ANTI-REDUP HACK --- */
+        /* Memaksa seluruh elemen tetap solid (opacity 1) saat script rerun */
+        .stApp, [data-testid="stAppViewContainer"], .element-container, iframe {
+            opacity: 1 !important;
+            filter: none !important;
+            transition: none !important;
+        }
+        
+        /* Menghilangkan efek 'skeleton' loading bawaan jika ada */
+        .st-emotion-cache-1y4p8pa {
+            opacity: 1 !important;
+        }
+
+        /* --- STYLING USGS & LAYOUT SEBELUMNYA --- */
         .block-container {
             padding-top: 0rem;
             padding-bottom: 0rem;
@@ -132,23 +146,18 @@ if uploaded_excel and uploaded_map:
             final_map_data['Total_Penjualan'] = final_map_data['Total_Penjualan'].fillna(0)
 
             # ------------------------------------------------------------------
-            # LOGIKA BINS BARU: 0%, 25%, 50%, 75%, 100% DARI MAX
+            # LOGIKA BINS (LINEAR SCALE 0, 25, 50, 75, 100%)
             # ------------------------------------------------------------------
             max_val = final_map_data['Total_Penjualan'].max()
             
-            # Hitung persentase linear dari nilai tertinggi
             linear_breaks = [
-                0,                  # 0%
-                max_val * 0.25,     # 25%
-                max_val * 0.50,     # 50%
-                max_val * 0.75,     # 75%
-                max_val             # 100%
+                0,                  
+                max_val * 0.25,     
+                max_val * 0.50,     
+                max_val * 0.75,     
+                max_val             
             ]
-            
-            # Pastikan urut dan unik (menghindari error jika max=0)
             linear_breaks = sorted(list(set(linear_breaks)))
-            
-            # Ubah ke string untuk ditampilkan di text area
             default_str = ", ".join([str(int(x)) for x in linear_breaks])
             # ------------------------------------------------------------------
 
@@ -162,7 +171,7 @@ if uploaded_excel and uploaded_map:
                 centroid = final_map_data.geometry.centroid
                 m = folium.Map(location=[centroid.y.mean(), centroid.x.mean()], zoom_start=9, tiles="CartoDB positron")
 
-                # Input Legend di Sidebar (Otomatis terisi default_str yang baru)
+                # Input Legend di Sidebar
                 with st.sidebar.expander("🎚️ Legend Configuration", expanded=True):
                      user_bins = st.text_area("Value Breaks (Comma separated):", value=default_str)
                 
@@ -171,8 +180,7 @@ if uploaded_excel and uploaded_map:
                     custom_bins = [float(x.strip()) for x in user_bins.split(',')]
                     custom_bins = sorted(list(set(custom_bins)))
                     
-                    # Validasi safety agar tidak error di Folium
-                    if custom_bins[0] > 0: custom_bins.insert(0, 0) # Paksa mulai dari 0 jika user hapus
+                    if custom_bins[0] > 0: custom_bins.insert(0, 0)
                     if custom_bins[-1] < max_val: custom_bins.append(max_val)
                     
                     if len(custom_bins) >= 2: bins_list = custom_bins
@@ -218,7 +226,6 @@ if uploaded_excel and uploaded_map:
                         fig, ax = plt.subplots(figsize=(12, 8))
                         cmap_base = plt.get_cmap(color_palette)
                         
-                        # Gunakan bins dari sidebar untuk export juga
                         if bins_list:
                              norm = mcolors.BoundaryNorm(bins_list, cmap_base.N)
                         else:
