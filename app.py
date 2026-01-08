@@ -174,15 +174,20 @@ if uploaded_excel and uploaded_map:
                         ax.set_ylim(south, north)
                         ax.set_axis_off() # Matikan axis peta agar bersih
 
-                        # 4. LEGENDA (DIPERBAIKI: DI LUAR PETA)
-                        # Menggunakan inset_axes dengan bbox_to_anchor untuk menaruhnya di BAWAH peta
-                        # Koordinat (0.5, -0.05) berarti: Tengah Horizontal, Sedikit di bawah batas bawah axis
+                        # 4. LEGENDA (DIPERBAIKI: DEFINISI EKSPLISIT 4-TUPLE)
+                        # Kita gunakan bbox_to_anchor dengan 4 angka: (x, y, width, height)
+                        # Koordinat ini relatif terhadap axes peta (transAxes).
+                        # x=0.2  : Mulai dari 20% lebar peta (supaya di tengah, karena lebarnya 60%)
+                        # y=-0.08: Di bawah peta (jarak sekitar 8% dari garis bawah)
+                        # w=0.6  : Lebar legenda 60% dari lebar peta
+                        # h=0.03 : Tinggi legenda 3% dari tinggi peta
+                        
                         cax = inset_axes(
                             ax,
-                            width="60%",           # Lebar legend 60% dari lebar peta (proporsional)
-                            height="3%",           # Tinggi legend tipis
-                            loc='upper center',    # Titik jangkar di tengah atas box legend
-                            bbox_to_anchor=(0.5, -0.02), # Geser ke luar bawah peta
+                            width="100%",    # Penuhi kotak yang kita buat di bbox_to_anchor
+                            height="100%",   # Penuhi kotak yang kita buat di bbox_to_anchor
+                            loc='upper center',
+                            bbox_to_anchor=(0.2, -0.08, 0.6, 0.03), # (x, y, width, height)
                             bbox_transform=ax.transAxes,
                             borderpad=0
                         )
@@ -191,11 +196,23 @@ if uploaded_excel and uploaded_map:
                             cm.ScalarMappable(norm=norm, cmap=cmap_base),
                             cax=cax,
                             orientation='horizontal',
-                            spacing='uniform' # Jarak warna rata
+                            spacing='uniform'
                         )
                         cb.set_label('Total Penjualan (Rupiah)', size=10, weight='bold', labelpad=5)
                         cb.ax.tick_params(labelsize=8)
 
+                        # 5. Simpan
+                        img_buffer = io.BytesIO()
+                        # bbox_inches='tight' akan otomatis memperluas canvas untuk menangkap legenda di bawah
+                        plt.savefig(img_buffer, format=format_file.lower(), transparent=True, bbox_inches='tight', dpi=300)
+                        img_buffer.seek(0)
+                        
+                        st.download_button(
+                            label=f"⬇️ Download {format_file}", 
+                            data=img_buffer, 
+                            file_name=f"Map_Export.{format_file.lower()}", 
+                            mime=f"image/{format_file.lower()}"
+                        )
                         # 5. Simpan
                         img_buffer = io.BytesIO()
                         # bbox_inches='tight' SANGAT PENTING: Ini akan otomatis memperluas gambar 
@@ -209,3 +226,4 @@ if uploaded_excel and uploaded_map:
             st.error(f"Error: {e}")
 else:
     st.markdown("<div style='text-align: center; padding: 50px; color: #666;'><h2>No Data Loaded</h2></div>", unsafe_allow_html=True)
+
