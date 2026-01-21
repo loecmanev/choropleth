@@ -198,7 +198,7 @@ if uploaded_excel and uploaded_map:
                 df_display = df_display.sort_values(by='Total_Penjualan', ascending=False).reset_index(drop=True)
                 df_display.columns = ['Kecamatan', 'Total Penjualan (Stik)']
                 
-                # --- PERBAIKAN 1: NOMOR URUT MULAI DARI 1 ---
+                # --- NOMOR URUT MULAI DARI 1 ---
                 df_display.index = df_display.index + 1
                 
                 st.dataframe(
@@ -213,31 +213,30 @@ if uploaded_excel and uploaded_map:
                 st.markdown("---")
                 st.markdown("### 📸 Export Table (Top 10)")
                 
-                # --- PERBAIKAN 2: MENYIAPKAN DATA UNTUK EXPORT (ADA KOLOM NO) ---
-                # Ambil Top 10 dan jadikan Index sebagai kolom 'No'
+                # --- MENYIAPKAN DATA EXPORT ---
                 df_export = df_display.head(10).reset_index() 
-                df_export.columns = ['No', 'Kecamatan', 'Total Penjualan (Stik)'] # Rename kolom
+                df_export.columns = ['No', 'Kecamatan', 'Total Penjualan (Stik)'] 
                 
                 rows = len(df_export)
-                # Sesuaikan tinggi gambar agar pas
-                h = min(max(rows * 0.5 + 1.5, 3), 10) 
+                # Tinggi dinamis disesuaikan sedikit agar lebih proporsional
+                h = min(max(rows * 0.5 + 1.2, 3), 10) 
                 
                 fig_tbl, ax_tbl = plt.subplots(figsize=(6, h))
                 ax_tbl.axis('tight'); ax_tbl.axis('off')
                 
-                # Format isi sel (tambah koma untuk ribuan)
+                # Format isi sel
                 cell_text = []
                 for row in df_export.values:
                     no, kec, val = row
-                    cell_text.append([int(no), kec, f"{val:,.0f}"]) # Format No jadi int, Val jadi ribuan
+                    cell_text.append([int(no), kec, f"{val:,.0f}"])
                 
-                # Tentukan lebar kolom manual (No kecil, Kecamatan sedang, Nilai besar)
+                # Lebar kolom
                 col_widths = [0.1, 0.5, 0.4] 
 
                 table_obj = ax_tbl.table(
                     cellText=cell_text, 
                     colLabels=df_export.columns, 
-                    colWidths=col_widths, # Pakai lebar kolom custom
+                    colWidths=col_widths,
                     loc='center', 
                     cellLoc='left', 
                     colColours=['#00264C', '#00264C', '#00264C']
@@ -247,7 +246,7 @@ if uploaded_excel and uploaded_map:
                 table_obj.set_fontsize(11)
                 table_obj.scale(1.2, 2)
                 
-                # Styling Header & Cells
+                # Styling
                 for (row, col), cell in table_obj.get_celld().items():
                     if row == 0:
                         cell.set_text_props(color='white', weight='bold')
@@ -255,21 +254,21 @@ if uploaded_excel and uploaded_map:
                     else:
                         cell.set_linewidth(0.5)
                         cell.set_edgecolor("#d1d5db")
-                        # Center alignment khusus untuk kolom 'No' (kolom ke-0)
                         if col == 0:
                             cell.set_text_props(ha='center')
                 
-                # --- PERBAIKAN 3: JUDUL TIDAK MENABRAK ---
+                # --- PERBAIKAN: MEMPERDEKAT JARAK JUDUL ---
                 plt.title(
                     f"Top 10 Wilayah - {pilihan_provinsi}", 
-                    y=1.02,   # Naikkan sedikit di atas tabel (sebelumnya 1)
-                    pad=20,   # Beri jarak napas positif (sebelumnya minus/negatif)
+                    y=1.0,    # Kembali ke 1.0 (posisi standar atas)
+                    pad=10,   # Dikurangi jadi 10 (sebelumnya 20)
                     fontsize=12, 
                     fontweight='bold', 
                     color='#333'
                 )
                 
                 buf_tbl = io.BytesIO()
+                # bbox_inches='tight' akan memotong whitespace berlebih secara otomatis
                 plt.savefig(buf_tbl, format='png', bbox_inches='tight', dpi=200, transparent=False)
                 buf_tbl.seek(0)
                 plt.close(fig_tbl)
@@ -286,4 +285,5 @@ if uploaded_excel and uploaded_map:
             st.error(f"Error: {e}")
 else:
     st.markdown("<div style='text-align: center; padding: 50px; color: #666;'><h2>No Data Loaded</h2></div>", unsafe_allow_html=True)
+
 
