@@ -187,7 +187,7 @@ if uploaded_excel and uploaded_map:
                     key="dl_map_direct"
                 )
 
-           # ==========================
+          # ==========================
             # PANEL KANAN: TABEL
             # ==========================
             with col_stats:
@@ -218,7 +218,6 @@ if uploaded_excel and uploaded_map:
                 df_export.columns = ['No', 'Kecamatan', 'Total Penjualan (Stik)'] 
                 
                 rows = len(df_export)
-                # Tinggi dinamis disesuaikan sedikit agar lebih proporsional
                 h = min(max(rows * 0.5 + 1.2, 3), 10) 
                 
                 fig_tbl, ax_tbl = plt.subplots(figsize=(6, h))
@@ -257,18 +256,17 @@ if uploaded_excel and uploaded_map:
                         if col == 0:
                             cell.set_text_props(ha='center')
                 
-                # --- PERBAIKAN: MEMPERDEKAT JARAK JUDUL ---
+                # --- PERBAIKAN: JARAK JUDUL DIBUAT MINIMAL ---
                 plt.title(
                     f"Top 10 Wilayah - {pilihan_provinsi}", 
-                    y=1.0,    # Kembali ke 1.0 (posisi standar atas)
-                    pad=10,   # Dikurangi jadi 10 (sebelumnya 20)
+                    y=1.0,    
+                    pad=2,    # Diubah ke 2 agar sangat dekat tapi aman
                     fontsize=12, 
                     fontweight='bold', 
                     color='#333'
                 )
                 
                 buf_tbl = io.BytesIO()
-                # bbox_inches='tight' akan memotong whitespace berlebih secara otomatis
                 plt.savefig(buf_tbl, format='png', bbox_inches='tight', dpi=200, transparent=False)
                 buf_tbl.seek(0)
                 plt.close(fig_tbl)
@@ -280,10 +278,10 @@ if uploaded_excel and uploaded_map:
                     mime="image/png",
                     key="dl_table_direct"
                 )
-
         except Exception as e:
             st.error(f"Error: {e}")
 else:
     st.markdown("<div style='text-align: center; padding: 50px; color: #666;'><h2>No Data Loaded</h2></div>", unsafe_allow_html=True)
+
 
 
