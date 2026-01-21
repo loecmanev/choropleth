@@ -187,48 +187,87 @@ if uploaded_excel and uploaded_map:
                     key="dl_map_direct"
                 )
 
-            # ==========================
+           # ==========================
             # PANEL KANAN: TABEL
             # ==========================
             with col_stats:
                 st.markdown("### 📋 Data Breakdown")
                 
+                # Persiapan Data
                 df_display = final_map_data[[region_col, 'Total_Penjualan']].copy()
                 df_display = df_display.sort_values(by='Total_Penjualan', ascending=False).reset_index(drop=True)
                 df_display.columns = ['Kecamatan', 'Total Penjualan (Stik)']
+                
+                # --- PERBAIKAN 1: NOMOR URUT MULAI DARI 1 ---
+                df_display.index = df_display.index + 1
                 
                 st.dataframe(
                     df_display, 
                     use_container_width=True, 
                     height=400,
-                    column_config={"Total Penjualan (Stik)": st.column_config.NumberColumn(format="%d")}
+                    column_config={
+                        "Total Penjualan (Stik)": st.column_config.NumberColumn(format="%d")
+                    }
                 )
                 
                 st.markdown("---")
                 st.markdown("### 📸 Export Table (Top 10)")
                 
-                df_export = df_display.head(10)
+                # --- PERBAIKAN 2: MENYIAPKAN DATA UNTUK EXPORT (ADA KOLOM NO) ---
+                # Ambil Top 10 dan jadikan Index sebagai kolom 'No'
+                df_export = df_display.head(10).reset_index() 
+                df_export.columns = ['No', 'Kecamatan', 'Total Penjualan (Stik)'] # Rename kolom
+                
                 rows = len(df_export)
-                h = min(max(rows * 0.4 + 1.2, 3), 10) 
+                # Sesuaikan tinggi gambar agar pas
+                h = min(max(rows * 0.5 + 1.5, 3), 10) 
                 
                 fig_tbl, ax_tbl = plt.subplots(figsize=(6, h))
                 ax_tbl.axis('tight'); ax_tbl.axis('off')
                 
+                # Format isi sel (tambah koma untuk ribuan)
                 cell_text = []
                 for row in df_export.values:
-                    kec, val = row
-                    cell_text.append([kec, f"{val:,.0f}"])
+                    no, kec, val = row
+                    cell_text.append([int(no), kec, f"{val:,.0f}"]) # Format No jadi int, Val jadi ribuan
                 
-                table_obj = ax_tbl.table(cellText=cell_text, colLabels=df_export.columns, loc='center', cellLoc='left', colColours=['#00264C', '#00264C'])
-                table_obj.auto_set_font_size(False); table_obj.set_fontsize(11); table_obj.scale(1.2, 2)
+                # Tentukan lebar kolom manual (No kecil, Kecamatan sedang, Nilai besar)
+                col_widths = [0.1, 0.5, 0.4] 
+
+                table_obj = ax_tbl.table(
+                    cellText=cell_text, 
+                    colLabels=df_export.columns, 
+                    colWidths=col_widths, # Pakai lebar kolom custom
+                    loc='center', 
+                    cellLoc='left', 
+                    colColours=['#00264C', '#00264C', '#00264C']
+                )
                 
+                table_obj.auto_set_font_size(False)
+                table_obj.set_fontsize(11)
+                table_obj.scale(1.2, 2)
+                
+                # Styling Header & Cells
                 for (row, col), cell in table_obj.get_celld().items():
                     if row == 0:
-                        cell.set_text_props(color='white', weight='bold'); cell.set_linewidth(0)
+                        cell.set_text_props(color='white', weight='bold')
+                        cell.set_linewidth(0)
                     else:
-                        cell.set_linewidth(0.5); cell.set_edgecolor("#d1d5db")
+                        cell.set_linewidth(0.5)
+                        cell.set_edgecolor("#d1d5db")
+                        # Center alignment khusus untuk kolom 'No' (kolom ke-0)
+                        if col == 0:
+                            cell.set_text_props(ha='center')
                 
-                plt.title(f"Top 10 Wilayah - {pilihan_provinsi}", y=1, pad=-14, fontsize=10, fontweight='bold', color='#333')
+                # --- PERBAIKAN 3: JUDUL TIDAK MENABRAK ---
+                plt.title(
+                    f"Top 10 Wilayah - {pilihan_provinsi}", 
+                    y=1.02,   # Naikkan sedikit di atas tabel (sebelumnya 1)
+                    pad=20,   # Beri jarak napas positif (sebelumnya minus/negatif)
+                    fontsize=12, 
+                    fontweight='bold', 
+                    color='#333'
+                )
                 
                 buf_tbl = io.BytesIO()
                 plt.savefig(buf_tbl, format='png', bbox_inches='tight', dpi=200, transparent=False)
@@ -247,3 +286,4 @@ if uploaded_excel and uploaded_map:
             st.error(f"Error: {e}")
 else:
     st.markdown("<div style='text-align: center; padding: 50px; color: #666;'><h2>No Data Loaded</h2></div>", unsafe_allow_html=True)
+
