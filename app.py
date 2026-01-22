@@ -5,7 +5,7 @@ import folium
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import matplotlib.cm as cm
-import matplotlib.ticker as ticker # <--- PENTING UNTUK FORMAT ANGKA
+import matplotlib.ticker as ticker
 import io
 from streamlit_folium import st_folium
 from folium.plugins import Draw
@@ -85,19 +85,31 @@ if uploaded_excel and uploaded_map:
                 gdf_kecamatan = gdf_raw
                 pilihan_provinsi = "All Regions"
 
-            # Join
-            gdf_points = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df.longitude, df.latitude), crs="EPSG:4326")
+            # --- PERUBAHAN DI SINI (POINT 1) ---
+            # Menggunakan header 'LONGITUDE' dan 'LATITUDE' (Case Sensitive sesuai Excel)
+            gdf_points = gpd.GeoDataFrame(
+                df, 
+                geometry=gpd.points_from_xy(df['LONGITUDE'], df['LATITUDE']), 
+                crs="EPSG:4326"
+            )
+            
             joined = gpd.sjoin(gdf_points, gdf_kecamatan, how="inner", predicate="within")
 
             region_col = 'NAME_3' if 'NAME_3' in gdf_kecamatan.columns else st.selectbox("Select Region Column:", gdf_kecamatan.columns)
             
-            agg_data = joined.groupby(region_col)['Z'].sum().reset_index()
+            # --- PERUBAHAN DI SINI (POINT 2) ---
+            # Mengganti 'Z' menjadi 'Stick' sesuai permintaan
+            agg_data = joined.groupby(region_col)['Stick'].sum().reset_index()
+            
             agg_data.columns = [region_col, 'Total_Penjualan']
             final_map_data = gdf_kecamatan.merge(agg_data, on=region_col, how="left")
             final_map_data['Total_Penjualan'] = final_map_data['Total_Penjualan'].fillna(0)
 
             # Bins
             max_val = final_map_data['Total_Penjualan'].max()
+            # Handle jika max_val 0 (data kosong)
+            if max_val == 0: max_val = 1
+                
             linear_breaks = sorted(list(set([0, max_val * 0.25, max_val * 0.50, max_val * 0.75, max_val])))
             default_str = ", ".join([str(int(x)) for x in linear_breaks])
 
@@ -117,7 +129,7 @@ if uploaded_excel and uploaded_map:
                 draw.add_to(m)
 
                 with st.sidebar.expander("🎚️ Legend Configuration", expanded=True):
-                     user_bins = st.text_area("Value Breaks:", value=default_str)
+                      user_bins = st.text_area("Value Breaks:", value=default_str)
                 
                 bins_list = None
                 try:
@@ -167,12 +179,12 @@ if uploaded_excel and uploaded_map:
                 cax = inset_axes(ax, width="100%", height="100%", loc='upper center', bbox_to_anchor=(0.2, -0.25, 0.6, 0.05), bbox_transform=ax.transAxes, borderpad=0)
                 cb = fig.colorbar(cm.ScalarMappable(norm=norm, cmap=cmap_base), cax=cax, orientation='horizontal', spacing='uniform')
                 
-                # FORMATTER: Ubah format angka menjadi Integer dengan Koma (contoh: 152,984)
-                cb.ax.xaxis.set_major_formatter(ticker.StrMethodFormatter('{x:,.0f}')) # <--- INI PERBAIKANNYA
+                # FORMATTER
+                cb.ax.xaxis.set_major_formatter(ticker.StrMethodFormatter('{x:,.0f}'))
                 
                 cb.set_label('Total Penjualan (Stik)', size=10, weight='bold', labelpad=10)
                 cb.ax.xaxis.set_ticks_position('bottom')
-                cb.ax.tick_params(labelsize=8) # Ukuran font angka
+                cb.ax.tick_params(labelsize=8)
 
                 img_buffer = io.BytesIO()
                 plt.savefig(img_buffer, format='png', transparent=True, bbox_inches='tight', dpi=300, pad_inches=0.2)
@@ -256,11 +268,10 @@ if uploaded_excel and uploaded_map:
                         if col == 0:
                             cell.set_text_props(ha='center')
                 
-                # --- PERBAIKAN: JARAK JUDUL DIBUAT MINIMAL ---
                 plt.title(
                     f"Top 10 Wilayah - {pilihan_provinsi}", 
-                    y=1.0,    
-                    pad=2,    # Diubah ke 2 agar sangat dekat tapi aman
+                    y=1.0,     
+                    pad=2,   
                     fontsize=12, 
                     fontweight='bold', 
                     color='#333'
@@ -282,6 +293,3 @@ if uploaded_excel and uploaded_map:
             st.error(f"Error: {e}")
 else:
     st.markdown("<div style='text-align: center; padding: 50px; color: #666;'><h2>No Data Loaded</h2></div>", unsafe_allow_html=True)
-
-
-
