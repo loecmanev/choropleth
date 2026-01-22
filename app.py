@@ -19,17 +19,15 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. INJECT CSS KHUSUS (ANTI REDUP + USGS STYLE) ---
+# --- 2. INJECT CSS KHUSUS ---
 st.markdown("""
     <style>
-        /* Anti-Dimming */
         .stApp, [data-testid="stAppViewContainer"], .element-container, iframe {
             opacity: 1 !important; filter: none !important; transition: none !important;
         }
-        /* Layout Fixes */
         .block-container { padding-top: 0rem; padding-bottom: 0rem; padding-left: 1rem; padding-right: 1rem; }
         
-        /* USGS Header */
+        /* USGS Header Style */
         .usgs-header {
             background-color: #00264C; color: white; padding: 15px 20px;
             display: flex; align-items: center; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
@@ -38,7 +36,6 @@ st.markdown("""
         .usgs-title { font-size: 24px; font-weight: bold; margin-left: 15px; letter-spacing: 0.5px; }
         .usgs-subtitle { font-size: 14px; color: #d1d5db; margin-left: 15px; border-left: 1px solid #d1d5db; padding-left: 15px; }
         
-        /* Dark Sidebar */
         [data-testid="stSidebar"] { background-color: #1e1e1e; border-right: 1px solid #333; }
         [data-testid="stSidebar"] * { color: #e0e0e0 !important; }
         .streamlit-expanderHeader { background-color: #2d2d2d !important; color: white !important; }
@@ -57,12 +54,12 @@ st.markdown("""
 
 # --- 3. SIDEBAR ---
 with st.sidebar:
-    st.markdown("### 1. Enter Search Criteria")
-    with st.expander("📁 Data Import", expanded=True):
+    st.markdown("### 1. Data Input")
+    with st.expander("📁 Upload Files", expanded=True):
         uploaded_excel = st.file_uploader("Upload Excel Data (.xlsx)", type=["xlsx"])
         uploaded_map = st.file_uploader("Upload Geometry (.geojson/.shp)", type=["geojson", "json", "shp"])
 
-    with st.expander("🎨 Visualization Settings", expanded=True):
+    with st.expander("🎨 Settings", expanded=True):
         color_palette = st.selectbox("Color Theme:", ["YlOrRd", "PuBu", "YlGn", "OrRd", "RdPu", "Spectral", "coolwarm", "turbo", "viridis"], index=0)
 
 # --- 4. PROSES UTAMA ---
@@ -71,12 +68,33 @@ main_container = st.container()
 if uploaded_excel and uploaded_map:
     with main_container:
         try:
-            # --- DATA PREP ---
+            # --- READ DATA ---
             df = pd.read_excel(uploaded_excel)
             gdf_raw = gpd.read_file(uploaded_map)
+            
+            # Standardize CRS
             if gdf_raw.crs != "EPSG:4326": gdf_raw = gdf_raw.to_crs("EPSG:4326")
 
-            # Filter
+            # --- [BARU] FILTER BRAND ---
+            # Cek apakah kolom Brand ada
+            if 'Brand' in df.columns:
+                # Ambil list unik brand, hilangkan nilai kosong, urutkan
+                unique_brands = sorted([str(x) for x in df['Brand'].dropna().unique()])
+                # Tambahkan opsi 'All Brands' di paling atas
+                brand_options = ['All Brands'] + unique_brands
+                
+                # Tampilkan Dropdown di Sidebar
+                st.sidebar.markdown("### 2. Filters")
+                selected_brand = st.sidebar.selectbox("🏷️ Select Brand:", brand_options)
+                
+                # Filter Dataframe Excel SEBELUM proses mapping
+                if selected_brand != 'All Brands':
+                    df = df[df['Brand'].astype(str) == selected_brand]
+                    st.toast(f"Menampilkan data untuk Brand: {selected_brand}", icon="✅")
+            else:
+                st.sidebar.warning("Kolom 'Brand' tidak ditemukan di Excel.")
+
+            # --- FILTER WILAYAH (GEOMETRY) ---
             if 'NAME_1' in gdf_raw.columns:
                 list_provinsi = sorted(gdf_raw['NAME_1'].unique())
                 pilihan_provinsi = st.selectbox("📍 Select Region of Interest:", list_provinsi)
@@ -85,35 +103,42 @@ if uploaded_excel and uploaded_map:
                 gdf_kecamatan = gdf_raw
                 pilihan_provinsi = "All Regions"
 
-            # --- PERUBAHAN DI SINI (POINT 1) ---
-            # Menggunakan header 'LONGITUDE' dan 'LATITUDE' (Case Sensitive sesuai Excel)
+            # --- BUAT GEODATAFRAME DARI EXCEL ---
+            # Menggunakan header 'LATITUDE' & 'LONGITUDE' (Huruf Besar Sesuai Excel Anda)
             gdf_points = gpd.GeoDataFrame(
                 df, 
                 geometry=gpd.points_from_xy(df['LONGITUDE'], df['LATITUDE']), 
                 crs="EPSG:4326"
             )
             
+            # --- SPATIAL JOIN ---
+            # Menggabungkan titik penjualan dengan peta wilayah
             joined = gpd.sjoin(gdf_points, gdf_kecamatan, how="inner", predicate="within")
 
+            # Tentukan kolom nama kecamatan (biasanya NAME_3 untuk level kecamatan di GADM)
             region_col = 'NAME_3' if 'NAME_3' in gdf_kecamatan.columns else st.selectbox("Select Region Column:", gdf_kecamatan.columns)
             
-            # --- PERUBAHAN DI SINI (POINT 2) ---
-            # Mengganti 'Z' menjadi 'Stick' sesuai permintaan
-            agg_data = joined.groupby(region_col)['Stick'].sum().reset_index()
-            
-            agg_data.columns = [region_col, 'Total_Penjualan']
-            final_map_data = gdf_kecamatan.merge(agg_data, on=region_col, how="left")
-            final_map_data['Total_Penjualan'] = final_map_data['Total_Penjualan'].fillna(0)
+            # --- AGREGASI DATA (SUM STICK) ---
+            # Menjumlahkan kolom 'Stick' berdasarkan wilayah
+            if 'Stick' in joined.columns:
+                agg_data = joined.groupby(region_col)['Stick'].sum().reset_index()
+                agg_data.columns = [region_col, 'Total_Stick']
+            else:
+                st.error("Kolom 'Stick' tidak ditemukan. Pastikan nama kolom di Excel adalah 'Stick'.")
+                st.stop()
 
-            # Bins
-            max_val = final_map_data['Total_Penjualan'].max()
-            # Handle jika max_val 0 (data kosong)
+            # Gabungkan hasil hitungan kembali ke peta wilayah
+            final_map_data = gdf_kecamatan.merge(agg_data, on=region_col, how="left")
+            final_map_data['Total_Stick'] = final_map_data['Total_Stick'].fillna(0)
+
+            # --- LOGIKA WARNA (BINS) ---
+            max_val = final_map_data['Total_Stick'].max()
             if max_val == 0: max_val = 1
                 
             linear_breaks = sorted(list(set([0, max_val * 0.25, max_val * 0.50, max_val * 0.75, max_val])))
             default_str = ", ".join([str(int(x)) for x in linear_breaks])
 
-            # --- LAYOUT DASHBOARD (SPLIT VIEW) ---
+            # --- LAYOUT DASHBOARD ---
             col_map, col_stats = st.columns([2.3, 1.7])
 
             # ==========================
@@ -121,13 +146,18 @@ if uploaded_excel and uploaded_map:
             # ==========================
             with col_map:
                 st.markdown(f"**Map View: {pilihan_provinsi}**")
+                if 'Brand' in df.columns and selected_brand != 'All Brands':
+                    st.caption(f"Filter: {selected_brand}")
                 
+                # Siapkan peta dasar
                 centroid = final_map_data.geometry.centroid
                 m = folium.Map(location=[centroid.y.mean(), centroid.x.mean()], zoom_start=9, tiles="CartoDB positron", zoom_snap=0.1, zoom_delta=0.1)
                 
+                # Tambahkan alat gambar
                 draw = Draw(export=False, position='topleft', draw_options={'polyline':False,'polygon':False,'circle':False,'marker':False,'circlemarker':False,'rectangle':True})
                 draw.add_to(m)
 
+                # Legend Setting
                 with st.sidebar.expander("🎚️ Legend Configuration", expanded=True):
                       user_bins = st.text_area("Value Breaks:", value=default_str)
                 
@@ -139,23 +169,26 @@ if uploaded_excel and uploaded_map:
                     if len(custom_bins) >= 2: bins_list = custom_bins
                 except: pass 
 
+                # Layer Choropleth
                 folium.Choropleth(
-                    geo_data=final_map_data, data=final_map_data, columns=[region_col, "Total_Penjualan"],
+                    geo_data=final_map_data, data=final_map_data, columns=[region_col, "Total_Stick"],
                     key_on=f"feature.properties.{region_col}", fill_color=color_palette, fill_opacity=0.8,
-                    line_opacity=0.3, legend_name="Total Penjualan (Stik)", bins=bins_list, highlight=True
+                    line_opacity=0.3, legend_name="Total Penjualan (Stick)", bins=bins_list, highlight=True
                 ).add_to(m)
                 
+                # Tooltip interaktif
                 folium.GeoJson(
                     final_map_data, 
                     style_function=lambda x: {'fillColor':'#00000000','color':'#00000000'}, 
-                    tooltip=folium.GeoJsonTooltip(fields=[region_col, 'Total_Penjualan'], aliases=['Kecamatan:', 'Total Stik:'], localize=True)
+                    tooltip=folium.GeoJsonTooltip(fields=[region_col, 'Total_Stick'], aliases=['Kecamatan:', 'Total Stick:'], localize=True)
                 ).add_to(m)
 
                 map_output = st_folium(m, use_container_width=True, height=600)
                 
-                # --- AUTO-RENDER MAP (LANGSUNG) ---
-                st.caption("Peta siap diunduh (Sesuai tampilan di atas)")
+                # --- DOWNLOAD MAP (Matplotlib) ---
+                st.caption("Peta siap diunduh")
                 
+                # Dapatkan batas peta (bounds)
                 minx, miny, maxx, maxy = final_map_data.total_bounds
                 west, south, east, north = minx, miny, maxx, maxy
                 if map_output['all_drawings']:
@@ -167,22 +200,18 @@ if uploaded_excel and uploaded_map:
                     south, north = b['_southWest']['lat'], b['_northEast']['lat']
                     west, east = b['_southWest']['lng'], b['_northEast']['lng']
 
-                # Matplotlib Plot
+                # Render Matplotlib
                 fig, ax = plt.subplots(figsize=(10, 10))
                 cmap_base = plt.get_cmap(color_palette)
                 norm = mcolors.BoundaryNorm(bins_list, cmap_base.N) if bins_list else mcolors.Normalize(vmin=0, vmax=max_val)
                 
-                final_map_data.plot(column='Total_Penjualan', cmap=cmap_base, norm=norm, ax=ax, edgecolor='black', linewidth=0.5)
+                final_map_data.plot(column='Total_Stick', cmap=cmap_base, norm=norm, ax=ax, edgecolor='black', linewidth=0.5)
                 ax.set_xlim(west, east); ax.set_ylim(south, north); ax.set_axis_off()
 
-                # Legend Bawah Jauh
                 cax = inset_axes(ax, width="100%", height="100%", loc='upper center', bbox_to_anchor=(0.2, -0.25, 0.6, 0.05), bbox_transform=ax.transAxes, borderpad=0)
                 cb = fig.colorbar(cm.ScalarMappable(norm=norm, cmap=cmap_base), cax=cax, orientation='horizontal', spacing='uniform')
-                
-                # FORMATTER
                 cb.ax.xaxis.set_major_formatter(ticker.StrMethodFormatter('{x:,.0f}'))
-                
-                cb.set_label('Total Penjualan (Stik)', size=10, weight='bold', labelpad=10)
+                cb.set_label(f'Total Penjualan (Stick) - {selected_brand if "Brand" in df.columns else ""}', size=10, weight='bold', labelpad=10)
                 cb.ax.xaxis.set_ticks_position('bottom')
                 cb.ax.tick_params(labelsize=8)
 
@@ -194,40 +223,36 @@ if uploaded_excel and uploaded_map:
                 st.download_button(
                     label="⬇️ Download Map (PNG)", 
                     data=img_buffer, 
-                    file_name="Map_Export.png", 
+                    file_name=f"Map_Export_{selected_brand if 'Brand' in df.columns else 'All'}.png", 
                     mime="image/png", 
                     key="dl_map_direct"
                 )
 
-          # ==========================
+            # ==========================
             # PANEL KANAN: TABEL
             # ==========================
             with col_stats:
                 st.markdown("### 📋 Data Breakdown")
                 
-                # Persiapan Data
-                df_display = final_map_data[[region_col, 'Total_Penjualan']].copy()
-                df_display = df_display.sort_values(by='Total_Penjualan', ascending=False).reset_index(drop=True)
-                df_display.columns = ['Kecamatan', 'Total Penjualan (Stik)']
-                
-                # --- NOMOR URUT MULAI DARI 1 ---
+                # Siapkan tabel display
+                df_display = final_map_data[[region_col, 'Total_Stick']].copy()
+                df_display = df_display.sort_values(by='Total_Stick', ascending=False).reset_index(drop=True)
+                df_display.columns = ['Kecamatan', 'Total Stick']
                 df_display.index = df_display.index + 1
                 
                 st.dataframe(
                     df_display, 
                     use_container_width=True, 
                     height=400,
-                    column_config={
-                        "Total Penjualan (Stik)": st.column_config.NumberColumn(format="%d")
-                    }
+                    column_config={"Total Stick": st.column_config.NumberColumn(format="%d")}
                 )
                 
                 st.markdown("---")
                 st.markdown("### 📸 Export Table (Top 10)")
                 
-                # --- MENYIAPKAN DATA EXPORT ---
+                # Render Gambar Tabel
                 df_export = df_display.head(10).reset_index() 
-                df_export.columns = ['No', 'Kecamatan', 'Total Penjualan (Stik)'] 
+                df_export.columns = ['No', 'Kecamatan', 'Total Stick'] 
                 
                 rows = len(df_export)
                 h = min(max(rows * 0.5 + 1.2, 3), 10) 
@@ -235,21 +260,18 @@ if uploaded_excel and uploaded_map:
                 fig_tbl, ax_tbl = plt.subplots(figsize=(6, h))
                 ax_tbl.axis('tight'); ax_tbl.axis('off')
                 
-                # Format isi sel
                 cell_text = []
                 for row in df_export.values:
                     no, kec, val = row
                     cell_text.append([int(no), kec, f"{val:,.0f}"])
                 
-                # Lebar kolom
                 col_widths = [0.1, 0.5, 0.4] 
 
                 table_obj = ax_tbl.table(
                     cellText=cell_text, 
                     colLabels=df_export.columns, 
                     colWidths=col_widths,
-                    loc='center', 
-                    cellLoc='left', 
+                    loc='center', cellLoc='left', 
                     colColours=['#00264C', '#00264C', '#00264C']
                 )
                 
@@ -257,7 +279,6 @@ if uploaded_excel and uploaded_map:
                 table_obj.set_fontsize(11)
                 table_obj.scale(1.2, 2)
                 
-                # Styling
                 for (row, col), cell in table_obj.get_celld().items():
                     if row == 0:
                         cell.set_text_props(color='white', weight='bold')
@@ -265,17 +286,9 @@ if uploaded_excel and uploaded_map:
                     else:
                         cell.set_linewidth(0.5)
                         cell.set_edgecolor("#d1d5db")
-                        if col == 0:
-                            cell.set_text_props(ha='center')
+                        if col == 0: cell.set_text_props(ha='center')
                 
-                plt.title(
-                    f"Top 10 Wilayah - {pilihan_provinsi}", 
-                    y=1.0,     
-                    pad=2,   
-                    fontsize=12, 
-                    fontweight='bold', 
-                    color='#333'
-                )
+                plt.title(f"Top 10 Wilayah - {pilihan_provinsi}\n({selected_brand if 'Brand' in df.columns else 'All Brands'})", y=1.0, pad=2, fontsize=12, fontweight='bold', color='#333')
                 
                 buf_tbl = io.BytesIO()
                 plt.savefig(buf_tbl, format='png', bbox_inches='tight', dpi=200, transparent=False)
@@ -290,6 +303,6 @@ if uploaded_excel and uploaded_map:
                     key="dl_table_direct"
                 )
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"Error Detail: {e}")
 else:
     st.markdown("<div style='text-align: center; padding: 50px; color: #666;'><h2>No Data Loaded</h2></div>", unsafe_allow_html=True)
