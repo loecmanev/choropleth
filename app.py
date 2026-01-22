@@ -162,13 +162,12 @@ if uploaded_excel and uploaded_map:
 
                 map_output = st_folium(m, use_container_width=True, height=600)
 
-                # --- EXPORT MAP LOGIC (Code Lama Anda) ---
+                # --- EXPORT MAP LOGIC ---
                 st.caption("Peta siap diunduh (Sesuai tampilan di atas)")
                 
                 minx, miny, maxx, maxy = final_map_data.total_bounds
                 west, south, east, north = minx, miny, maxx, maxy
                 
-                # Cek bounds dari folium untuk sinkronisasi zoom
                 if map_output['all_drawings']:
                     coords = map_output['all_drawings'][-1]['geometry']['coordinates'][0]
                     lons, lats = [c[0] for c in coords], [c[1] for c in coords]
@@ -218,9 +217,14 @@ if uploaded_excel and uploaded_map:
                 df_display.columns = ['Kecamatan', 'Total Stick']
                 df_display.index = df_display.index + 1
                 
+                # --- [BARU] HITUNG & TAMPILKAN TOTAL DI WEB ---
+                total_all_sales = df_display['Total Stick'].sum()
+                st.metric(label="Total Penjualan (Semua Kecamatan)", value=f"{total_all_sales:,.0f}")
+                # ----------------------------------------------
+                
                 st.dataframe(df_display, use_container_width=True, height=400, column_config={"Total Stick": st.column_config.NumberColumn(format="%d")})
 
-                # --- EXPORT TABLE LOGIC (Code Lama Anda) ---
+                # --- EXPORT TABLE LOGIC ---
                 st.markdown("---")
                 st.markdown("### 📸 Export Table (Top 10)")
                 
@@ -261,10 +265,12 @@ if uploaded_excel and uploaded_map:
                         cell.set_edgecolor("#d1d5db")
                         if col == 0: cell.set_text_props(ha='center')
                 
+                # --- [BARU] UPDATE JUDUL EXPORT UNTUK MENAMPILKAN TOTAL ---
                 plt.title(
-                    f"Top 10 Wilayah - {pilihan_provinsi}\n({selected_brand})", 
-                    y=1.0, pad=2, fontsize=12, fontweight='bold', color='#333'
+                    f"Top 10 Wilayah - {pilihan_provinsi}\n({selected_brand})\nTotal Penjualan (Semua): {total_all_sales:,.0f}", 
+                    y=1.0, pad=15, fontsize=12, fontweight='bold', color='#333'
                 )
+                # ---------------------------------------------------------
                 
                 buf_tbl = io.BytesIO()
                 plt.savefig(buf_tbl, format='png', bbox_inches='tight', dpi=200, transparent=False)
