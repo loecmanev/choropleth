@@ -267,7 +267,7 @@ if uploaded_excel and uploaded_map:
                 
                 # --- [BARU] UPDATE JUDUL EXPORT UNTUK MENAMPILKAN TOTAL ---
                 plt.title(
-                    f"Top 10 Wilayah - {pilihan_provinsi}\n({selected_brand})\nTotal Penjualan (Semua): {total_all_sales:,.0f}", 
+                    f"Top 10 Wilayah - {pilihan_provinsi}\n({selected_brand})\nTotal Penjualan : {total_all_sales:,.0f}", 
                     y=1.0, pad=15, fontsize=12, fontweight='bold', color='#333'
                 )
                 # ---------------------------------------------------------
@@ -289,3 +289,4 @@ if uploaded_excel and uploaded_map:
             st.error(f"Error: {e}")
 else:
     st.info("Silakan upload file Excel dan GeoJSON untuk memulai.")
+
